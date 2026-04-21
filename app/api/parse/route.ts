@@ -86,8 +86,12 @@ export async function POST(req: Request) {
     if (normalizedType === "pdf") {
       const pdfParser = new PDFParser();
       rawText = await new Promise<string>((resolve, reject) => {
-        pdfParser.on("pdfParser_dataError", (err) => reject(err.parserError));
-        pdfParser.on("pdfParser_dataReady", () => resolve(pdfParser.getRawTextContent()));
+        pdfParser.on("pdfParser_dataError", (err: any) =>
+          reject(err?.parserError ?? err) // ✅ FIXED
+        );
+        pdfParser.on("pdfParser_dataReady", () =>
+          resolve(pdfParser.getRawTextContent())
+        );
         pdfParser.parseBuffer(buffer);
       });
     } else if (normalizedType === "docx") {
