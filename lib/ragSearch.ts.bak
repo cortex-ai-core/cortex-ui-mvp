@@ -1,0 +1,34 @@
+// lib/ragSearch.ts
+// Step 32G / 32H — UI-facing RAG Search Helper
+// Calls:  NEXT_PUBLIC_CORTEX_API_URL + "/rag/search"
+
+export async function ragSearch(query: string) {
+  try {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_CORTEX_API_URL}/rag/search`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error("RAG Search failed:", await response.text());
+      return [];
+    }
+
+    const { results } = await response.json();
+
+    // 🔥 32H — Normalize DB → UI format
+    return results.map((row: any) => ({
+      id: row.id,
+      chunk: row.content,      // DB: content → UI: chunk
+      score: row.similarity,   // DB: similarity → UI: score
+    }));
+  } catch (err) {
+    console.error("RAG Search Error:", err);
+    return [];
+  }
+}
+

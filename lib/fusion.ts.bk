@@ -1,0 +1,91 @@
+// lib/fusion.ts
+//
+// Cortéx Hybrid Fusion Engine (Phase 3B)
+// Combines: 
+//   - semantic similarity (vector score)
+//   - lexical relevance score
+//   - optional metadata boosts
+//
+// Output:
+//   Weighted hybrid score used to rank retrieved chunks
+//
+// This is the foundation for Phase 4 LLM re-ranking.
+
+export interface RetrievedChunk {
+  id: string;
+  text: string;
+  similarity: number;      // vector similarity: 0–1
+  lexicalScore: number;    // keyword overlap: 0–1
+  metadata?: Record<string, any>;
+}
+
+export interface FusionConfig {
+  semanticWeight: number;  // default 0.75
+  lexicalWeight: number;   // default 0.25
+  metadataBoosts?: Record<string, number>; // future use (e.g., "title": 1.1)
+}
+
+// Default Cortéx sovereign hybrid weighting.
+// Semantic dominates, lexical supports = high-precision retrieval.
+export const defaultFusionConfig: FusionConfig = {
+  semanticWeight: 0.75,
+  lexicalWeight: 0.25,
+  metadataBoosts: {},
+};
+
+/**
+ * Apply metadata boost (optional upgrade later)
+ */
+function applyMetadataBoosts(
+  score: number,
+  metadata: Record<string, any> | undefined,
+  config: FusionConfig
+): number {
+  if (!metadata || !config.metadataBoosts) return score;
+
+  let boostedScore = score;
+
+  for (const key of Object.keys(config.metadataBoosts)) {
+    if (metadata[key]) {
+      boostedScore *= config.metadataBoosts[key];
+    }
+  }
+
+  return boostedScore;
+}
+
+/**
+ * Hybrid fusion calculation
+ */
+export function fuseScores(
+  chunk: RetrievedChunk,
+  config: FusionConfig = defaultFusionConfig
+) {
+  const { similarity, lexicalScore } = chunk;
+
+  // Weighted hybrid score
+  let hybrid =
+    similarity * config.semanticWeight +
+    lexicalScore * config.lexicalWeight;
+
+  // Apply metadata boosts
+  hybrid = applyMetadataBoosts(hybrid, chunk.metadata, config);
+
+  return hybrid;
+}
+
+/**
+ * Rank chunks by hybrid score (descending)
+ */
+export function rankFusion(
+  chunks: RetrievedChunk[],
+  config: FusionConfig = defaultFusionConfig
+) {
+  return [...chunks]
+    .map((chunk) => ({
+      ...chunk,
+      hybridScore: fuseScores(chunk, config),
+    }))
+    .sort((a, b) => b.hybridScore - a.hybridScore);
+}
+

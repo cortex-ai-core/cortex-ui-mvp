@@ -1,0 +1,108 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+
+interface MessageBubbleProps {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export default function MessageBubble({ role, content }: MessageBubbleProps) {
+  const isUser = role === "user";
+  const isSystem = role === "system";
+
+  const [displayContent, setDisplayContent] = useState(content);
+  const incomingRef = useRef(content);
+  const renderedRef = useRef("");
+  const rafRef = useRef<number | null>(null);
+
+  // ===============================
+  // 🔥 RAW STREAM FIDELITY (NO TOKEN LOSS)
+  // ===============================
+  useEffect(() => {
+    incomingRef.current = content;
+
+    if (incomingRef.current === renderedRef.current) return;
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+    const update = () => {
+      const inc = incomingRef.current;
+      const cur = renderedRef.current;
+
+      if (inc !== cur) {
+        renderedRef.current = inc;
+        setDisplayContent(inc);
+      }
+
+      if (incomingRef.current !== renderedRef.current) {
+        rafRef.current = requestAnimationFrame(update);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(update);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [content]);
+
+  // ===============================
+  // PREMIUM ROLE STYLING
+  // ===============================
+  const bubbleClass = `
+    px-5 py-3 
+    max-w-[78%]
+    rounded-3xl 
+    border
+    shadow-[0_2px_8px_rgba(0,0,0,0.06)]
+    backdrop-blur-sm
+    transition-all 
+    duration-200
+    ${isSystem 
+      ? "bg-[#fffceb] text-gray-900 border-[#f0e6a8]"
+      : isUser
+      ? "bg-black text-white border-[#1a1a1a] shadow-[0_3px_12px_rgba(0,0,0,0.25)]"
+      : "bg-white text-black border-[#ececec]"
+    }
+  `;
+
+  // Assistant subtle glow (typing presence)
+  const assistantGlow =
+    !isUser && !isSystem
+      ? {
+          boxShadow: "0 0 14px rgba(0,0,0,0.08)",
+        }
+      : {};
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={`w-full flex ${isUser ? "justify-end" : "justify-start"} mb-5`}
+    >
+      <motion.div
+        style={assistantGlow}
+        className={bubbleClass}
+      >
+        {/* RAW STREAM RENDERER */}
+        <pre
+          style={{
+            whiteSpace: "break-spaces",
+            wordBreak: "break-word",
+            fontFamily: "Inter, system-ui, monospace",
+            fontSize: "15.5px",
+            lineHeight: "1.62",
+            margin: 0,
+            padding: 0,
+          }}
+        >
+          {displayContent}
+        </pre>
+      </motion.div>
+    </motion.div>
+  );
+}
+

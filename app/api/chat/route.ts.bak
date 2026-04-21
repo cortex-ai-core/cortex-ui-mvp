@@ -1,0 +1,227 @@
+// =============================================================
+//  CORTÉX — SOVEREIGN CHAT ROUTE (STEP 47 — FINAL VERSION)
+//  Fully aligned with: decomposition, decodeIntent, fusionV2,
+//  inference v2, synthesis v2, domain ontology.
+// =============================================================
+
+import { retrieveKnowledge } from "@/lib/reasoning/retrieval";
+import { decomposeQuestion } from "@/lib/reasoning/decomposition";
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
+
+import { decodeIntent } from "@/lib/reasoning/decodeIntent";  // ✅ Correct
+import { buildContext } from "@/lib/reasoning/context";
+import { fuseEvidenceV2 } from "@/lib/reasoning/fusion";
+import { inferPaths } from "@/lib/reasoning/inference";
+import { synthesizeFinalAnswer } from "@/lib/reasoning/synthesis";
+
+// =============================================================
+//  ENVIRONMENT CHECKS
+// =============================================================
+if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+if (!process.env.SUPABASE_URL) throw new Error("SUPABASE_URL missing");
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY)
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
+
+export const runtime = "nodejs";
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+const MODEL = process.env.CORTEX_MODEL || "gpt-5.1";
+const MEMORY_LIMIT = 50;
+
+// =============================================================
+//  DIVISION SYSTEM PROMPTS
+// =============================================================
+function getDivisionSystemPrompt(toneMode: string) {
+  switch (toneMode) {
+    case "ceo": return `You are Cortéx — CEO Mode.`;
+    case "advisory": return `You are Cortéx — Advisory Intelligence.`;
+    case "cybersecurity": return `You are Cortéx — Cybersecurity Engine.`;
+    case "datamanagement": return `You are Cortéx — Data Management Engine.`;
+    case "recruiting": return `You are Cortéx — Recruiting Intelligence.`;
+    case "ventures": return `You are Cortéx — Ventures Intelligence.`;
+    case "king": return `You are Cortéx — KING Mode (Sovereign).`;
+    default: return `You are Cortéx — Neutral Mode.`;
+  }
+}
+
+function getDivisionWeights(toneMode: string) {
+  switch (toneMode) {
+    case "ceo": return { ragWeight: 0.30, memoryWeight: 0.20, inferenceWeight: 0.50, template: "decision" };
+    case "advisory": return { ragWeight: 0.40, memoryWeight: 0.10, inferenceWeight: 0.50, template: "framework" };
+    case "cybersecurity": return { ragWeight: 0.60, memoryWeight: 0.10, inferenceWeight: 0.30, template: "risk" };
+    case "datamanagement": return { ragWeight: 0.50, memoryWeight: 0.20, inferenceWeight: 0.30, template: "data" };
+    case "recruiting": return { ragWeight: 0.40, memoryWeight: 0.40, inferenceWeight: 0.20, template: "recruit" };
+    case "ventures": return { ragWeight: 0.30, memoryWeight: 0.10, inferenceWeight: 0.60, template: "thesis" };
+    case "king": return { ragWeight: 0.25, memoryWeight: 0.25, inferenceWeight: 0.50, template: "sovereign" };
+    default: return { ragWeight: 0.33, memoryWeight: 0.33, inferenceWeight: 0.33, template: "neutral" };
+  }
+}
+
+function applyDivisionTemplate(template: string, answer: string) {
+  if (!answer || answer.trim().length < 3) return answer;
+
+  const clean = answer
+    .replace(/\[rag_evidence\]/gi, "")
+    .replace(/\[memory_evidence\]/gi, "")
+    .replace(/\[intent.*?\]/gi, "")
+    .trim();
+
+  switch (template) {
+    case "decision": return `Decision:\n${clean}`;
+    case "framework": return `Framework:\n${clean}`;
+    case "risk": return `Risk Assessment:\n${clean}`;
+    case "data": return `Data Architecture & Governance:\n${clean}`;
+    case "recruit": return `Talent Evaluation:\n${clean}`;
+    case "thesis": return `Investment Thesis:\n${clean}`;
+    case "sovereign": return `▐ SOVEREIGN OUTPUT ▐\n${clean}`;
+    default: return clean;
+  }
+}
+
+// =============================================================
+//  MAIN CHAT ROUTE
+// =============================================================
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const {
+      sessionId,
+      namespace,
+      message,
+      mode,
+      ephemeralFiles = [],
+      useRag = true,
+      toneMode = "neutral",
+    } = body;
+
+    if (!sessionId)
+      return NextResponse.json({ error: "Session ID required." }, { status: 400 });
+
+    // =============================================================
+    //  🟦 STEP 47 PATCH — RAW vs TRIMMED NORMALIZATION
+    // =============================================================
+    const raw = message ?? "";          // NEVER TOUCH — used for diagnostic
+    const trimmed = raw.trim();         // Used for reasoning only
+    const rawLower = raw.toLowerCase();
+
+    // TRUE diagnostic trigger — MUST start at index 0, and must be RAW.
+    const isDiagnostic = rawLower.startsWith("diagnostic:");
+
+    // =============================================================
+    //  🟦 DIAGNOSTIC OVERRIDE BLOCK (corrected)
+    // =============================================================
+    if (isDiagnostic) {
+      return NextResponse.json({
+        diagnostic: true,
+        message: "Diagnostic mode not implemented — preserved for post-MVP.",
+        raw,
+      });
+    }
+
+    // From this point forward: all reasoning uses trimmed version
+    const userMessage = trimmed;
+
+    // 0️⃣ SAVE USER MESSAGE
+    await supabase.from("messages").insert({
+      session_id: sessionId,
+      role: "user",
+      content: userMessage,
+    });
+
+    // 1️⃣ DECOMPOSITION
+    const decomposition = decomposeQuestion(userMessage);
+    const topDomain = decomposition.topDomain ?? null;
+
+    // 2️⃣ LOAD MEMORY
+    const { data: memoryRows } = await supabase
+      .from("messages")
+      .select("role, content, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at")
+      .limit(MEMORY_LIMIT);
+
+    const memory = memoryRows || [];
+
+    // 3️⃣ INTENT + RAG
+    const reasoningIntent = decodeIntent(userMessage);
+
+    let ragMatches = [];
+    if (useRag) {
+      const rag = await retrieveKnowledge(userMessage, namespace);
+      ragMatches = rag.matches || [];
+    }
+
+    const divisionWeights = getDivisionWeights(toneMode);
+    const reasoningContext = buildContext(decomposition);
+
+    // 4️⃣ FUSION
+    const evidence = fuseEvidenceV2({
+      decomposition,
+      context: reasoningContext,
+      ragChunks: ragMatches,
+      memory,
+      intent: reasoningIntent,
+      weights: {
+        ragWeight: divisionWeights.ragWeight,
+        memoryWeight: divisionWeights.memoryWeight,
+      },
+    });
+
+    // 5️⃣ INFERENCE
+    const reasoningResult = inferPaths({
+      intent: reasoningIntent,
+      context: reasoningContext,
+      evidence,
+      doctrine: {},
+      inferenceWeight: divisionWeights.inferenceWeight,
+      topDomain,
+      domainSignals: decomposition.domainSignals,
+      variables: decomposition.variables,
+      signals: decomposition.signals,
+    });
+
+    const bestPath = reasoningResult.bestPath;
+
+    // 6️⃣ SYNTHESIS
+    let final = await synthesizeFinalAnswer({
+      bestPath,
+      winningScore: reasoningResult.confidence,
+      intent: { ...reasoningIntent, topDomain },
+      rawQuestion: userMessage,
+      inference: { ...reasoningResult, topDomain },
+      fusionSummary: evidence.summary,
+      topDomain,
+      domainSignals: decomposition.domainSignals,
+    });
+
+    if (!final || final.trim().length < 3) {
+      final = "Cortéx could not synthesize a complete response.";
+    }
+
+    // 7️⃣ TEMPLATE
+    final = applyDivisionTemplate(divisionWeights.template, final);
+
+    // 8️⃣ SAVE ASSISTANT MESSAGE
+    await supabase.from("messages").insert({
+      session_id: sessionId,
+      role: "assistant",
+      content: final,
+    });
+
+    return NextResponse.json({ message: final, sessionId });
+
+  } catch (err: any) {
+    console.error("CHAT ROUTE ERROR:", err);
+    return NextResponse.json(
+      { error: err.message ?? "Chat route failure" },
+      { status: 500 }
+    );
+  }
+}

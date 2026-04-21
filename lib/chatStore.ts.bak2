@@ -1,0 +1,220 @@
+"use client";
+
+import { useState, useCallback, useEffect } from "react";
+
+// =============================================================
+//  LOCAL STORAGE HELPERS
+// =============================================================
+
+// Load chat list
+export function loadChatList() {
+  if (typeof window === "undefined") return [];
+  const raw = localStorage.getItem("cortex_chat_list");
+  return raw ? JSON.parse(raw) : [];
+}
+
+// Save chat list
+export function saveChatList(list: any[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("cortex_chat_list", JSON.stringify(list));
+}
+
+// Load a session's messages
+export function loadChatLocal(sessionId: string) {
+  if (typeof window === "undefined") return [];
+  const raw = localStorage.getItem(`cortex_chat_${sessionId}`);
+  return raw ? JSON.parse(raw) : [];
+}
+
+// Save messages for a session
+export function saveChatLocal(sessionId: string, messages: any[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(`cortex_chat_${sessionId}`, JSON.stringify(messages));
+}
+
+// Create a new session
+export function createLocalSession() {
+  const id = crypto.randomUUID();
+
+  const list = loadChatList();
+  list.unshift({
+    id,
+    title: "New Chat",
+    createdAt: Date.now(),
+  });
+  saveChatList(list);
+
+  saveChatLocal(id, []);
+  return id;
+}
+
+// =============================================================
+//  useChatStore — STREAM SAFE (CORTÉX 34J–34M)
+// =============================================================
+export function useChatStore() {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+
+  // ------------------------------------------------------------
+  // INPUT LOCK SYSTEM
+  // ------------------------------------------------------------
+  const [isSending, setIsSending] = useState(false);
+  const lockInput = useCallback(() => setIsSending(true), []);
+  const unlockInput = useCallback(() => setIsSending(false), []);
+
+  // ------------------------------------------------------------
+  //  FIX #1 — RESTORE LAST SESSION ON BOOT
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const list = loadChatList();
+    if (list.length > 0) {
+      const last = list[0];
+      setSessionId(last.id);
+
+      const msgs = loadChatLocal(last.id);
+      setMessages(msgs);
+    } else {
+      // no sessions exist → create a new one
+      const id = createLocalSession();
+      setSessionId(id);
+      setMessages([]);
+    }
+  }, []);
+
+  // ------------------------------------------------------------
+  // CREATE NEW SESSION
+  // ------------------------------------------------------------
+  const createNewSession = useCallback(() => {
+    const id = createLocalSession();
+    setSessionId(id);
+    setMessages([]);
+    return id;
+  }, []);
+
+  // ------------------------------------------------------------
+  // LOAD EXISTING SESSION
+  // ------------------------------------------------------------
+  const loadSessionMessages = useCallback((id: string) => {
+    const msgs = loadChatLocal(id);
+    setSessionId(id);
+    setMessages(msgs);
+    return msgs;
+  }, []);
+
+  // ------------------------------------------------------------
+  // FIX #2 — GUARANTEE A REAL SESSION EXISTS (FULLY INITIALIZED)
+  // ------------------------------------------------------------
+  const ensureSession = useCallback(() => {
+    if (sessionId) return sessionId;
+
+    // create → save → hydrate UI
+    const newId = createLocalSession();
+    setSessionId(newId);
+    setMessages([]);
+
+    return newId;
+  }, [sessionId]);
+
+  // ------------------------------------------------------------
+  // USER → append final message normally
+  // ------------------------------------------------------------
+  const appendMessageToLocal = useCallback(
+    (role: string, text: string) => {
+      const sid = ensureSession();
+      if (!sid) return;
+
+      setMessages(prev => {
+        const updated = [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role,
+            content: [{ type: "output_text", text }],
+          },
+        ];
+        saveChatLocal(sid, updated);
+        return updated;
+      });
+    },
+    [ensureSession]
+  );
+
+  // ------------------------------------------------------------
+  // FIX #3 — CREATE EMPTY ASSISTANT MESSAGE BEFORE STREAM BEGINS
+  // ------------------------------------------------------------
+  const startAssistantMessage = useCallback(() => {
+    const sid = ensureSession();
+    const id = crypto.randomUUID();
+
+    setMessages(prev => {
+      const updated = [
+        ...prev,
+        {
+          id,
+          role: "assistant",
+          content: [{ type: "output_text", text: "" }],
+        },
+      ];
+
+      saveChatLocal(sid, updated);
+      return updated;
+    });
+
+    return id;
+  }, [ensureSession]);
+
+  // ------------------------------------------------------------
+  // UPDATE STREAMING MESSAGE
+  // ------------------------------------------------------------
+  const updateAssistantMessage = useCallback(
+    (token: string) => {
+      const sid = sessionId;
+      if (!sid) return;
+
+      setMessages(prev => {
+        if (prev.length === 0) return prev;
+
+        const last = prev[prev.length - 1];
+        if (!last || last.role !== "assistant") return prev;
+
+        const updatedLast = {
+          ...last,
+          content: [
+            {
+              type: "output_text",
+              text: (last.content?.[0]?.text || "") + token,
+            },
+          ],
+        };
+
+        const updated = [...prev.slice(0, -1), updatedLast];
+
+        saveChatLocal(sid, updated);
+        return updated;
+      });
+    },
+    [sessionId]
+  );
+
+  // =============================================================
+  // PUBLIC API
+  // =============================================================
+  return {
+    sessionId,
+    messages,
+
+    createNewSession,
+    loadSessionMessages,
+
+    appendMessageToLocal,
+    startAssistantMessage,
+    updateAssistantMessage,
+
+    isSending,
+    lockInput,
+    unlockInput,
+  };
+}
+

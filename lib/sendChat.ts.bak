@@ -1,0 +1,162 @@
+import { mergeIdentity } from "@/lib/identity/identityMiddleware";
+
+let activeRequest = false;
+
+export async function sendChat(
+  sessionId: string,
+  message: string,
+  onFinalText: (value: string) => void,
+  _onToken: (value: string) => void,
+  config: {
+    namespace: string;
+    mode: "ephemeral" | "persistent";
+    ephemeralFiles?: { name: string; content: string }[];
+    toneMode: string;
+    identity: {
+      userId: string;
+      role: string;
+      namespace: string;
+    };
+  }
+) {
+  if (activeRequest) {
+    console.warn("⏳ Request already in-flight — ignoring parallel send.");
+    return;
+  }
+  activeRequest = true;
+
+  try {
+    const {
+      namespace,
+      mode,
+      ephemeralFiles = [],
+      toneMode,
+      identity: identityFromClient,
+    } = config;
+
+    // ----------------------------------------------------
+    // 🔐 VALIDATE IDENTITY (FROM CLIENT ONLY)
+    // ----------------------------------------------------
+    if (
+      !identityFromClient?.userId ||
+      !identityFromClient?.role ||
+      !identityFromClient?.namespace
+    ) {
+      console.error("❌ INVALID IDENTITY FROM CLIENT", identityFromClient);
+      throw new Error("Invalid identity payload.");
+    }
+
+    const selectedDivision = toneMode === "neutral" ? null : toneMode;
+    const identity = mergeIdentity(selectedDivision);
+
+    // ----------------------------------------------------
+    // 🆕 BUILD EPHEMERAL CONTEXT (CRITICAL FIX)
+    // ----------------------------------------------------
+    const ephemeralContext = (ephemeralFiles || [])
+      .filter((f) => f?.content?.trim())
+      .map((f) => `--- ${f.name} ---\n${f.content.trim()}`)
+      .join("\n\n");
+
+    // ----------------------------------------------------
+    // 1️⃣ Build API payload
+    // ----------------------------------------------------
+    const payload = {
+      sessionId,
+      message,
+      namespace,
+      mode,
+      ephemeralContext, // ✅ NEW
+      toneMode,
+
+      // ✅ CORRECT — SINGLE SOURCE OF TRUTH
+      identity: {
+        ...identityFromClient,
+
+        // 🔥 KEEP ADVANCED LAYER
+        selectedDivision,
+        effectivePersona: identity.effectivePersona,
+        core: identity.core,
+        division: identity.division,
+      },
+    };
+
+    // ----------------------------------------------------
+    // 2️⃣ Select backend URL
+    // ----------------------------------------------------
+    const BACKEND =
+      process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
+      process.env.NEXT_PUBLIC_CORTEX_API_URL?.trim() ||
+      process.env.NEXT_PUBLIC_CORTEX_SERVER_URL?.trim() ||
+      "http://localhost:8080";
+
+    const url = `${BACKEND}/api/chat`;
+
+    // ----------------------------------------------------
+    // 🔐 3️⃣ GET TOKEN
+    // ----------------------------------------------------
+    let token = "";
+
+    if (typeof window !== "undefined") {
+      token = localStorage.getItem("token") || "";
+    }
+
+    if (!token) {
+      console.error("❌ NO AUTH TOKEN");
+      throw new Error("Authentication required — no token available.");
+    }
+
+    // ----------------------------------------------------
+    // 4️⃣ Send request
+    // ----------------------------------------------------
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      console.error("❌ CHAT ROUTE ERROR RAW:", raw);
+      throw new Error(`Chat request failed: ${res.status}`);
+    }
+
+    // ----------------------------------------------------
+    // 5️⃣ Parse response
+    // ----------------------------------------------------
+    const data = await res.json();
+
+    const reply =
+      data?.message ??
+      data?.finalAnswer ??
+      data?.final_answer ??
+      "Cortéx response unavailable.";
+
+    try {
+      onFinalText(reply);
+    } catch (uiError) {
+      console.error("UI update failed:", uiError);
+    }
+
+    // ----------------------------------------------------
+    // 6️⃣ Return metadata
+    // ----------------------------------------------------
+    return {
+      reply,
+      ragUsed: data?.ragApplied ?? false,
+      matchCount: data?.matchCount ?? 0,
+      results: Array.isArray(data?.results) ? data.results : [],
+      reasoningPath: data?.reasoningPath ?? null,
+      raw: data,
+    };
+
+  } catch (err) {
+    console.error("❌ sendChat error:", err);
+    throw err;
+
+  } finally {
+    activeRequest = false;
+  }
+}

@@ -1,0 +1,38 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import ChatClient from "./ChatClient";
+import { Suspense } from "react";
+import { getUserFromToken } from "@/lib/auth/getUserFromToken";
+
+export default function ChatWrapper() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    const parsedUser = getUserFromToken();
+
+    if (!parsedUser) {
+      router.replace("/login");
+      return;
+    }
+
+    setUser(parsedUser);
+  }, [router]);
+
+  if (!user) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <ChatClient user={user} />
+    </Suspense>
+  );
+}

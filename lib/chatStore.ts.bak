@@ -1,0 +1,309 @@
+"use client";
+
+import { useState, useCallback, useEffect, useRef } from "react";
+
+// =============================================================
+//  LOCAL STORAGE HELPERS
+// =============================================================
+function loadChatList(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem("cortex_chat_list");
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatList(list: string[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("cortex_chat_list", JSON.stringify(list));
+}
+
+function loadChatLocal(sessionId: string): any[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(`cortex_chat_${sessionId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveChatLocal(sessionId: string, messages: any[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(`cortex_chat_${sessionId}`, JSON.stringify(messages));
+}
+
+function createLocalSession(): string {
+  const id = crypto.randomUUID();
+  const list = loadChatList();
+  list.unshift(id);
+  saveChatList(list);
+  localStorage.setItem(`cortex_chat_${id}`, JSON.stringify([]));
+  return id;
+}
+
+// =============================================================
+//  DEDUPLICATION — FIXED TO PRESERVE UPDATES
+// =============================================================
+function dedupeMessages(msgs: any[]) {
+  const map = new Map();
+  for (const m of msgs) {
+    map.set(m.id, m); // last write wins
+  }
+  return Array.from(map.values());
+}
+
+// =============================================================
+//  CHAT STORE
+// =============================================================
+export function useChatStore() {
+  const hydrationBlock = useRef(false);
+
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [isSending, setIsSending] = useState(false);
+
+  const lockInput = useCallback(() => setIsSending(true), []);
+  const unlockInput = useCallback(() => setIsSending(false), []);
+
+  // =============================================================
+  // TONE MODE
+  // =============================================================
+  const [toneMode, setToneMode] = useState<
+    | "neutral"
+    | "king"
+    | "ceo"
+    | "advisory"
+    | "recruiting"
+    | "cybersecurity"
+    | "datamanagement"
+    | "ventures"
+  >(() => {
+    if (typeof window === "undefined") return "neutral";
+    return (localStorage.getItem("cortex_tone_mode") as any) || "neutral";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cortex_tone_mode", toneMode);
+    }
+  }, [toneMode]);
+
+  // =============================================================
+  // INITIALIZE SESSION
+  // =============================================================
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hydrationBlock.current) return;
+    hydrationBlock.current = true;
+
+    const saved = localStorage.getItem("cortex_current_session");
+
+    if (saved) {
+      setSessionId(saved);
+      setMessages(loadChatLocal(saved));
+      setIsSending(false);
+      return;
+    }
+
+    const id = createLocalSession();
+    setSessionId(id);
+    setMessages([]);
+    setIsSending(false);
+    localStorage.setItem("cortex_current_session", id);
+  }, []);
+
+  useEffect(() => {
+    if (sessionId && typeof window !== "undefined") {
+      localStorage.setItem("cortex_current_session", sessionId);
+      setIsSending(false);
+    }
+  }, [sessionId]);
+
+  // =============================================================
+  // ENSURE SESSION
+  // =============================================================
+  const ensureSession = useCallback(() => {
+    if (sessionId) return sessionId;
+
+    const saved = localStorage.getItem("cortex_current_session");
+    if (saved) {
+      setSessionId(saved);
+      setMessages(loadChatLocal(saved));
+      setIsSending(false);
+      return saved;
+    }
+
+    const id = createLocalSession();
+    setSessionId(id);
+    setMessages([]);
+    setIsSending(false);
+    localStorage.setItem("cortex_current_session", id);
+    return id;
+  }, [sessionId]);
+
+  // =============================================================
+  // CREATE / LOAD SESSIONS
+  // =============================================================
+  const createNewSession = useCallback(() => {
+    const id = createLocalSession();
+    setSessionId(id);
+    setMessages([]);
+    setIsSending(false);
+    localStorage.setItem("cortex_current_session", id);
+    return id;
+  }, []);
+
+  const loadSessionMessages = useCallback((id: string) => {
+    const msgs = loadChatLocal(id);
+    setMessages(dedupeMessages(msgs));
+    setIsSending(false);
+    return msgs;
+  }, []);
+
+  // =============================================================
+  // ACTIVE STREAM MESSAGE ID — FIXES STREAM UPDATES
+  // =============================================================
+  const activeAssistantId = useRef<string | null>(null);
+
+  // =============================================================
+  // USER MESSAGE
+  // =============================================================
+  const appendMessageToLocal = useCallback(
+    (role: string, text: string) => {
+      const sid = ensureSession();
+      if (!sid) return;
+
+      const newMsg = {
+        id: crypto.randomUUID(),
+        role,
+        content: text,
+      };
+
+      setMessages((prev) => {
+        const updated = dedupeMessages([...prev, newMsg]);
+        saveChatLocal(sid, updated);
+        return updated;
+      });
+
+      lockInput();
+    },
+    [ensureSession, lockInput]
+  );
+
+  // =============================================================
+  // ASSISTANT — NON-STREAM INSERT
+  // =============================================================
+  const lastTurnRef = useRef<string>("");
+
+  const appendAssistantMessage = useCallback(
+    (text: string) => {
+      const sid = ensureSession();
+      if (!sid) return;
+
+      // Only dedupe within the SAME TURN
+      if (text === lastTurnRef.current) return;
+      lastTurnRef.current = text;
+
+      const newMsg = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: text,
+      };
+
+      activeAssistantId.current = newMsg.id;
+
+      setMessages((prev) => {
+        const updated = dedupeMessages([...prev, newMsg]);
+        saveChatLocal(sid, updated);
+        return updated;
+      });
+
+      unlockInput();
+      setIsSending(false);
+    },
+    [ensureSession, unlockInput]
+  );
+
+  // =============================================================
+  // STREAM: START
+  // =============================================================
+  const startAssistantMessage = useCallback(() => {
+    const sid = ensureSession();
+    const id = crypto.randomUUID();
+    activeAssistantId.current = id;
+
+    setMessages((prev) => {
+      const updated = dedupeMessages([
+        ...prev,
+        { id, role: "assistant", content: "" },
+      ]);
+      saveChatLocal(sid, updated);
+      return updated;
+    });
+
+    return id;
+  }, [ensureSession]);
+
+  // =============================================================
+  // STREAM: UPDATE — FIXED TO TARGET ACTIVE ID
+  // =============================================================
+  const updateAssistantMessage = useCallback(
+    (token: string) => {
+      const sid = ensureSession();
+      if (!sid) return;
+
+      const targetId = activeAssistantId.current;
+      if (!targetId) return;
+
+      setMessages((prev) => {
+        const updated = prev.map((msg) =>
+          msg.id === targetId
+            ? { ...msg, content: (msg.content || "") + token }
+            : msg
+        );
+
+        saveChatLocal(sid, updated);
+        return updated;
+      });
+    },
+    [ensureSession]
+  );
+
+  // =============================================================
+  // AUTO-UNLOCK
+  // =============================================================
+  useEffect(() => {
+    if (messages.length > 0) {
+      const last = messages[messages.length - 1];
+      if (last.role === "assistant") {
+        setIsSending(false);
+      }
+    }
+  }, [messages]);
+
+  // =============================================================
+  // EXPORT STORE
+  // =============================================================
+  return {
+    sessionId,
+    messages,
+
+    createNewSession,
+    loadSessionMessages,
+
+    appendMessageToLocal,
+    appendAssistantMessage,
+    startAssistantMessage,
+    updateAssistantMessage,
+
+    isSending,
+    lockInput,
+    unlockInput,
+
+    toneMode,
+    setToneMode,
+  };
+}

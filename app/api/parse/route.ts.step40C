@@ -1,0 +1,122 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import PDFParser from "pdf2json";
+import mammoth from "mammoth";
+
+export const runtime = "nodejs";
+
+// Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// Helper: clean + normalize text
+function cleanText(text: string): string {
+  return text
+    .replace(/\s+/g, " ")          // normalize whitespace
+    .replace(/\n{2,}/g, "\n")      // collapse empty lines
+    .replace(/\r/g, "")
+    .trim();
+}
+
+export async function POST(req: Request) {
+  try {
+    const { path, type, originalName } = await req.json();
+
+    if (!path || !type) {
+      return NextResponse.json(
+        { error: "Missing path or file type" },
+        { status: 400 }
+      );
+    }
+
+    // 1️⃣ Download file from Supabase Storage
+    const { data, error } = await supabase.storage
+      .from(process.env.SUPABASE_STORAGE_BUCKET!)
+      .download(path);
+
+    if (error || !data) {
+      return NextResponse.json(
+        { error: "Unable to download file", details: error?.message },
+        { status: 500 }
+      );
+    }
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+
+    let rawText = "";
+
+    // 2️⃣ Parse PDF
+    if (type === "pdf") {
+      const pdfParser = new PDFParser();
+
+      rawText = await new Promise((resolve, reject) => {
+        pdfParser.on("pdfParser_dataError", (err) => reject(err.parserError));
+        pdfParser.on("pdfParser_dataReady", () =>
+          resolve(pdfParser.getRawTextContent())
+        );
+        pdfParser.parseBuffer(buffer);
+      });
+    }
+
+    // 3️⃣ Parse DOCX
+    else if (type === "docx") {
+      const parsed = await mammoth.extractRawText({ buffer });
+      rawText = parsed.value;
+    }
+
+    // 4️⃣ Parse TXT
+    else if (type === "txt") {
+      rawText = buffer.toString("utf8");
+    }
+
+    else {
+      return NextResponse.json(
+        { error: `Unsupported file type: ${type}` },
+        { status: 400 }
+      );
+    }
+
+    // 5️⃣ Clean text
+    const cleaned = cleanText(rawText);
+
+    // 6️⃣ Insert into `documents` table (Option A)
+    const { data: insertData, error: insertError } = await supabase
+      .from("documents")
+      .insert({
+        file_name: originalName || path,
+        content: cleaned,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Supabase insert error:", insertError);
+      return NextResponse.json(
+        { error: "Failed to insert document", details: insertError.message },
+        { status: 500 }
+      );
+    }
+
+    // 7️⃣ Return document_id and cleaned text
+    return NextResponse.json(
+      {
+        success: true,
+        document_id: insertData.id,
+        file_name: insertData.file_name,
+        text_length: cleaned.length,
+        preview: cleaned.slice(0, 500),
+      },
+      { status: 200 }
+    );
+
+  } catch (err: any) {
+    console.error("Parse error:", err);
+    return NextResponse.json(
+      { error: "Parse failure", details: err?.message },
+      { status: 500 }
+    );
+  }
+}
+

@@ -1,0 +1,88 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+
+interface MessageBubbleProps {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export default function MessageBubble({ role, content }: MessageBubbleProps) {
+  const isUser = role === "user";
+  const isSystem = role === "system";
+
+  const [displayContent, setDisplayContent] = useState(content);
+  const incomingRef = useRef(content);
+  const renderedRef = useRef("");
+  const rafRef = useRef<number | null>(null);
+
+  // 🔥 RAW token fidelity — no normalization
+  useEffect(() => {
+    incomingRef.current = content;
+
+    if (incomingRef.current === renderedRef.current) return;
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+    const update = () => {
+      const inc = incomingRef.current;
+      const cur = renderedRef.current;
+
+      if (inc !== cur) {
+        renderedRef.current = inc;
+        setDisplayContent(inc);
+      }
+
+      if (incomingRef.current !== renderedRef.current) {
+        rafRef.current = requestAnimationFrame(update);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(update);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [content]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={`w-full flex ${isUser ? "justify-end" : "justify-start"} mb-4`}
+    >
+      <div
+        className={`
+          px-5 py-3 
+          max-w-[80%]
+          rounded-2xl shadow-sm border
+
+          ${isSystem
+            ? "bg-yellow-50 text-gray-900 border-yellow-300 italic"
+            : isUser
+            ? "bg-black text-white border-gray-700 shadow-md"
+            : "bg-white text-black border-gray-200"
+          }
+        `}
+      >
+        {/* RAW STREAM RENDERER */}
+        <pre
+          style={{
+            whiteSpace: "break-spaces",
+            wordBreak: "break-word",
+            fontFamily: "Inter, system-ui, monospace",
+            fontSize: "15px",
+            lineHeight: "1.6",
+            margin: 0,
+            padding: 0,
+          }}
+        >
+          {displayContent}
+        </pre>
+      </div>
+    </motion.div>
+  );
+}
+

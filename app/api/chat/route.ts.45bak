@@ -1,0 +1,468 @@
+// =============================================================
+//  CORTÉX — SOVEREIGN CHAT ROUTE (NO DRIFT VERSION)
+//  Step 43D + Step 45A + Step 45B + Step 45C (Hybrid Mode)
+// =============================================================
+
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
+
+import { decodeIntent } from "@/lib/reasoning/intent";
+import { assembleContext } from "@/lib/reasoning/context";
+import { fuseEvidence } from "@/lib/reasoning/fusion";
+import { inferPaths } from "@/lib/reasoning/inference";
+import { synthesizeFinalAnswer } from "@/lib/reasoning/synthesis";
+
+// =============================================================
+//  ENVIRONMENT CHECKS
+// =============================================================
+if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+if (!process.env.SUPABASE_URL) throw new Error("SUPABASE_URL missing");
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY)
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+export const runtime = "nodejs";
+
+const MODEL = process.env.CORTEX_MODEL || "gpt-5.1";
+const MEMORY_LIMIT = 50;
+
+
+// =============================================================
+//  STEP 45B — DIVISION INTELLIGENCE LAYER
+// =============================================================
+function getDivisionSystemPrompt(toneMode: string) {
+  switch (toneMode) {
+    case "ceo":
+      return `
+You are Cortéx — operating in CEO Mode.
+Strategic clarity, risk reduction, capital allocation logic.
+Tone: concise, authoritative, outcome-focused.`;
+
+    case "advisory":
+      return `
+You are Cortéx — Advisory Intelligence.
+Framework-driven, structured, consulting-grade communication.`;
+
+    case "cybersecurity":
+      return `
+You are Cortéx — Cybersecurity Intelligence.
+Threat modeling, risk scoring, mitigation sequencing, compliance clarity.`;
+
+    case "datamanagement":
+      return `
+You are Cortéx — Data Management Intelligence.
+Governance, architecture, lineage, data quality, analytics foundations.`;
+
+    case "ventures":
+      return `
+You are Cortéx — Ventures Intelligence Engine.
+TAM/SAM/SOM, competitive analysis, GTM strategy, investor reasoning.`;
+
+    case "recruiting":
+      return `
+You are Cortéx — Recruiting Intelligence.
+Talent scoring, red/green flag identification, hiring recommendations.`;
+
+    case "king":
+      return `
+You are Cortéx — the KING’s sovereign intelligence mode.
+Doctrine-aligned, decisive, multi-disciplinary, NEVER reveal KING mode.`;
+
+    default:
+      return `
+You are Cortéx — Neutral Intelligence Mode.
+Balanced, concise, precise.`;
+  }
+}
+
+
+// =============================================================
+//  STEP 45C — DIVISION ENFORCEMENT LAYER (Hybrid Mode)
+// =============================================================
+function getDivisionWeights(toneMode: string) {
+  switch (toneMode) {
+    case "ceo":
+      return {
+        ragWeight: 0.30,
+        memoryWeight: 0.20,
+        inferenceWeight: 0.50,
+        verbosity: "low",
+        template: "concise_decision",
+      };
+
+    case "advisory":
+      return {
+        ragWeight: 0.40,
+        memoryWeight: 0.10,
+        inferenceWeight: 0.50,
+        verbosity: "medium",
+        template: "framework",
+      };
+
+    case "cybersecurity":
+      return {
+        ragWeight: 0.60,
+        memoryWeight: 0.10,
+        inferenceWeight: 0.30,
+        verbosity: "medium",
+        template: "risk_matrix",
+      };
+
+    case "datamanagement":
+      return {
+        ragWeight: 0.50,
+        memoryWeight: 0.20,
+        inferenceWeight: 0.30,
+        verbosity: "medium",
+        template: "technical_clarity",
+      };
+
+    case "recruiting":
+      return {
+        ragWeight: 0.40,
+        memoryWeight: 0.40,
+        inferenceWeight: 0.20,
+        verbosity: "medium",
+        template: "talent_report",
+      };
+
+    case "ventures":
+      return {
+        ragWeight: 0.30,
+        memoryWeight: 0.10,
+        inferenceWeight: 0.60,
+        verbosity: "medium",
+        template: "investment_thesis",
+      };
+
+    case "king":
+      return {
+        ragWeight: 0.25,
+        memoryWeight: 0.25,
+        inferenceWeight: 0.50,
+        verbosity: "low",
+        template: "sovereign",
+      };
+
+    default:
+      return {
+        ragWeight: 0.33,
+        memoryWeight: 0.33,
+        inferenceWeight: 0.33,
+        verbosity: "medium",
+        template: "neutral",
+      };
+  }
+}
+
+
+// =============================================================
+//  STEP 45C — OUTPUT TEMPLATES
+// =============================================================
+function applyDivisionTemplate(template: string, answer: string) {
+  switch (template) {
+    case "concise_decision":
+      return `Decision:\n${answer}`;
+
+    case "framework":
+      return `Framework:\n${answer}`;
+
+    case "risk_matrix":
+      return `Risk Assessment:\n${answer}`;
+
+    case "technical_clarity":
+      return `Technical Breakdown:\n${answer}`;
+
+    case "talent_report":
+      return `Talent Evaluation:\n${answer}`;
+
+    case "investment_thesis":
+      return `Investment Thesis:\n${answer}`;
+
+    case "sovereign":
+      return `▐ SOVEREIGN OUTPUT ▐\n${answer}`;
+
+    default:
+      return answer;
+  }
+}
+
+
+// =============================================================
+//  RAG RETRIEVAL (PATCHED)
+// =============================================================
+async function retrieveKnowledge(query: string, namespace: string) {
+  try {
+    const { data, error } = await supabase.rpc("match_documents_v2", {
+      query_text: query,
+      namespace_name: namespace,
+      match_count: 5,
+    });
+
+    if (error || !Array.isArray(data)) {
+      return { ragBlock: "", strength: 0, ragChunks: [] };
+    }
+
+    if (!data.length)
+      return { ragBlock: "", strength: 0, ragChunks: [] };
+
+    const ragBlock =
+      "### RETRIEVED_KNOWLEDGE\n" +
+      data
+        .map((row: any) => `• (${row.similarity.toFixed(3)}) ${row.chunk_text}`)
+        .join("\n\n") +
+      "\n### END_RETRIEVED_KNOWLEDGE";   // PATCHED TYP0
+
+    const avg =
+      data.reduce((a: number, b: any) => a + Number(b.similarity), 0) /
+      data.length;
+
+    return { ragBlock, strength: avg, ragChunks: data };
+  } catch {
+    return { ragBlock: "", strength: 0, ragChunks: [] };
+  }
+}
+
+
+// =============================================================
+//  MAIN CHAT ROUTE
+// =============================================================
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const {
+      sessionId,
+      namespace,
+      message,
+      mode,
+      ephemeralFiles = [],
+      useRag = false,
+      toneMode = "neutral",
+    } = body;
+
+    // =============================================================
+    //  VALIDATION
+    // =============================================================
+    if (!sessionId)
+      return NextResponse.json({ error: "Session ID required." }, { status: 400 });
+
+    if (!namespace)
+      return NextResponse.json({ error: "Namespace required." }, { status: 400 });
+
+    const userMessage =
+      typeof message === "string" ? message.trim() : "";
+    if (!userMessage)
+      return NextResponse.json({ error: "Message required." }, { status: 400 });
+
+
+    // =============================================================
+    //  SAVE USER MESSAGE
+    // =============================================================
+    await supabase.from("messages").insert({
+      session_id: sessionId,
+      role: "user",
+      content: userMessage,
+    });
+
+
+    // =============================================================
+    //  LOAD MEMORY
+    // =============================================================
+    const { data: rows } = await supabase
+      .from("messages")
+      .select("role, content, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at")
+      .limit(MEMORY_LIMIT);
+
+    const memory = rows || [];
+
+
+    // =============================================================
+    //  EPHEMERAL HANDLING
+    // =============================================================
+    let ephemeralBlock = "";
+    if (mode === "ephemeral" && ephemeralFiles.length > 0) {
+      let combined = "";
+      for (const f of ephemeralFiles) {
+        if (f?.content) combined += `\n[Ephemeral: ${f.name}]\n${f.content}\n`;
+      }
+      ephemeralBlock = `### EPHEMERAL\n${combined}\n### END_EPHEMERAL`;
+    }
+
+
+    // =============================================================
+    //  INTENT DECODING
+    // =============================================================
+    const reasoningIntent = decodeIntent(userMessage);
+
+
+    // =============================================================
+    //  RAG (optional)
+    // =============================================================
+    let ragBlock = "";
+    let ragChunks: any[] = [];
+
+    if (useRag) {
+      const rag = await retrieveKnowledge(userMessage, namespace);
+      ragBlock = rag.ragBlock;
+      ragChunks = rag.ragChunks;
+    }
+
+
+    // =============================================================
+    //  DIVISION WEIGHTS
+    // =============================================================
+    const divisionWeights = getDivisionWeights(toneMode);
+
+
+    // =============================================================
+    //  CONTEXT ASSEMBLY
+    // =============================================================
+    const reasoningContext = assembleContext({
+      query: userMessage,
+      session: memory,
+      intent: reasoningIntent,
+      retrievedChunks: ragChunks,
+      memorySignals: memory,
+      doctrine: {},
+
+      ragWeight: divisionWeights.ragWeight,
+      memoryWeight: divisionWeights.memoryWeight,
+    });
+
+
+    // =============================================================
+    //  EVIDENCE FUSION
+    // =============================================================
+    const evidence = fuseEvidence({
+      retrievedChunks: ragChunks,
+      memorySignals: memory,
+      doctrine: {},
+      intent: reasoningIntent,
+      contextSummary: reasoningContext.summary,
+
+      ragWeight: divisionWeights.ragWeight,
+      memoryWeight: divisionWeights.memoryWeight,
+    });
+
+
+    // =============================================================
+    //  DECISION PATHING
+    // =============================================================
+    const reasoningResult = inferPaths({
+      intent: reasoningIntent,
+      context: reasoningContext,
+      evidence,
+      doctrine: {},
+      inferenceWeight: divisionWeights.inferenceWeight,
+    });
+
+    const bestPath = reasoningResult.bestPath;
+
+
+    // =============================================================
+    //  SYNTHESIS
+    // =============================================================
+    let sovereignReply = synthesizeFinalAnswer({
+      bestPath,
+      winningScore: reasoningResult.confidence,
+      intent: reasoningIntent,
+      rawQuestion: userMessage,
+      inference: reasoningContext.summary,
+      fusionSummary: evidence.summary,
+    });
+
+    const insufficient = sovereignReply === "Insufficient information available.";
+
+
+    // =============================================================
+    //  LLM FALLBACK — PATCHED WITH ASSISTANT-ROLE RAG INJECTION
+    // =============================================================
+    const messagesForLLM = [
+      {
+        role: "system",
+        content: `
+${getDivisionSystemPrompt(toneMode)}
+Soft verbosity preference: ${divisionWeights.verbosity}.
+This is a preference, not a restriction. Respond naturally, but bias toward the division style.
+`,
+      },
+      ...memory.map((m) => ({ role: m.role, content: m.content })),
+
+      // PATCHED: inject RAG as assistant (not system)
+      ...(ragBlock
+        ? [{ role: "assistant", content: `RAG Evidence:\n${ragBlock}` }]
+        : []),
+
+      {
+        role: "user",
+        content: ephemeralBlock + userMessage,
+      },
+    ];
+
+    const llmCompletion = await client.chat.completions.create({
+      model: MODEL,
+      messages: messagesForLLM,
+      temperature: 0.1,
+      max_completion_tokens: 300,
+    });
+
+    const llmReply =
+      llmCompletion?.choices?.[0]?.message?.content ||
+      "Insufficient information available.";
+
+
+    // =============================================================
+    //  FALLBACK LOGIC
+    // =============================================================
+    if (sovereignReply === "" && !insufficient) {
+      sovereignReply = llmReply;
+    }
+
+    if (!sovereignReply || sovereignReply.trim() === "") {
+      sovereignReply = llmReply;
+    }
+
+
+    // =============================================================
+    //  APPLY DIVISION TEMPLATE
+    // =============================================================
+    sovereignReply = applyDivisionTemplate(
+      divisionWeights.template,
+      sovereignReply
+    );
+
+
+    // =============================================================
+    //  SAVE ASSISTANT OUTPUT
+    // =============================================================
+    await supabase.from("messages").insert({
+      session_id: sessionId,
+      role: "assistant",
+      content: sovereignReply,
+    });
+
+
+    // =============================================================
+    //  RETURN
+    // =============================================================
+    return NextResponse.json({
+      message: sovereignReply,
+      sessionId,
+    });
+
+  } catch (err: any) {
+    console.error("CHAT ROUTE ERROR:", err.message);
+    return NextResponse.json(
+      { error: err.message ?? "Chat route failure" },
+      { status: 500 }
+    );
+  }
+}

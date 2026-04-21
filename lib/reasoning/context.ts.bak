@@ -1,0 +1,129 @@
+// -------------------------------------------------------------
+// CORTÉX REASONING ENGINE — CONTEXT ASSEMBLY LAYER (Step 43)
+// -------------------------------------------------------------
+// Purpose:
+//   - Build the "Context Matrix" for Cortéx’s internal reasoning.
+//   - Unify session state, memory engine signals, RAG chunks,
+//     doctrine weighting, and inferred intent.
+//   - Prepare a coherent snapshot of everything relevant
+//     before inference begins.
+// -------------------------------------------------------------
+
+export type ContextAssemblyInput = {
+  query: string;
+  session?: any;
+  intent?: any;
+  retrievedChunks?: any[];
+  memorySignals?: any[];
+  doctrine?: any;
+};
+
+export type ContextAssemblyOutput = {
+  query: string;
+  intent: any;
+  summary: string;            // internal compressed context
+  memoryStrength: number;     // 0–1 weighting from memory engine relevance
+  ragStrength: number;        // 0–1 weighting from RAG evidence
+  doctrineWeight: number;     // how strongly doctrine influences the situation
+  signals: any[];             // combined signals for inference
+  raw: ContextAssemblyInput;  // untouched raw data for the inference layer
+};
+
+// -------------------------------------------------------------
+// MAIN CONTEXT ASSEMBLER
+// -------------------------------------------------------------
+
+export function assembleContext(
+  input: ContextAssemblyInput
+): ContextAssemblyOutput {
+  const {
+    query,
+    session = {},
+    intent = {},
+    retrievedChunks = [],
+    memorySignals = [],
+    doctrine = {}
+  } = input;
+
+  // -----------------------------------------------------------
+  // 1. Weight evidence sources
+  // -----------------------------------------------------------
+  const memoryStrength = calculateMemoryStrength(memorySignals);
+  const ragStrength = calculateRAGStrength(retrievedChunks);
+  const doctrineWeight = calculateDoctrineWeight(doctrine, intent);
+
+  // -----------------------------------------------------------
+  // 2. Build combined signal array
+  // -----------------------------------------------------------
+  const signals = mergeSignals({
+    retrievedChunks,
+    memorySignals,
+    doctrine,
+    intent
+  });
+
+  // -----------------------------------------------------------
+  // 3. Generate compressed context summary (internal only)
+  // -----------------------------------------------------------
+  const summary = generateContextSummary({
+    query,
+    intent,
+    signals,
+    session
+  });
+
+  return {
+    query,
+    intent,
+    summary,
+    memoryStrength,
+    ragStrength,
+    doctrineWeight,
+    signals,
+    raw: input
+  };
+}
+
+// -------------------------------------------------------------
+// SUBFUNCTION STUBS — READY FOR ENHANCEMENT
+// -------------------------------------------------------------
+
+function calculateMemoryStrength(memorySignals: any[]): number {
+  if (!memorySignals || memorySignals.length === 0) return 0.1;
+  // Placeholder: strength grows with volume + confidence
+  return Math.min(1, 0.2 + memorySignals.length * 0.1);
+}
+
+function calculateRAGStrength(retrievedChunks: any[]): number {
+  if (!retrievedChunks || retrievedChunks.length === 0) return 0.1;
+  // Placeholder: strength grows with chunk count
+  return Math.min(1, 0.2 + retrievedChunks.length * 0.05);
+}
+
+function calculateDoctrineWeight(doctrine: any, intent: any): number {
+  if (!doctrine) return 0.1;
+
+  // Placeholder logic — real version will link to King’s doctrinal priorities
+  if (intent?.type === "strategic") return 0.9;
+  if (intent?.type === "risk") return 0.8;
+
+  return 0.5;
+}
+
+function mergeSignals(input: any): any[] {
+  const { retrievedChunks = [], memorySignals = [], doctrine = {}, intent = {} } = input;
+
+  return [
+    ...retrievedChunks.map((c: any) => ({ type: "rag", data: c })),
+    ...memorySignals.map((m: any) => ({ type: "memory", data: m })),
+    { type: "doctrine", data: doctrine },
+    { type: "intent", data: intent }
+  ];
+}
+
+function generateContextSummary(input: any): string {
+  const { query, intent } = input;
+
+  // Compressed internal-only summary — not shown to user
+  return `Context summary for query="${query}" with intent="${intent?.type}"`;
+}

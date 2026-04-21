@@ -1,0 +1,92 @@
+"use client";
+
+import { useState } from "react";
+
+export default function FileUploader({ onUploadComplete }: any) {
+  const [uploading, setUploading] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [status, setStatus] = useState("");
+
+  async function handleUpload(e: any) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploading(true);
+    setStatus("Uploading...");
+
+    // 1️⃣ UPLOAD
+    const form = new FormData();
+    form.append("file", file);
+
+    const uploadRes = await fetch("/api/upload", {
+      method: "POST",
+      body: form,
+    });
+
+    const uploadJson = await uploadRes.json();
+
+    console.log("UPLOAD JSON:", uploadJson); // 🔥 DEBUG
+
+    if (!uploadJson.success) {
+      setUploading(false);
+      console.error("Upload failed:", uploadJson);
+      alert(uploadJson.error);
+      return;
+    }
+
+    const uploadPath = uploadJson.path;               // ⬅ MUST EXIST
+    const mimeType   = uploadJson.type;
+    const namespace  = uploadJson.namespace;
+    const name       = uploadJson.originalName;
+
+    setFileName(name);
+    setStatus("Parsing...");
+
+    // 2️⃣ PARSE — ALWAYS send required fields
+    const parseBody = {
+      path: uploadPath,
+      type: mimeType,
+      originalName: name,
+      namespace,
+    };
+
+    console.log("PARSE BODY SENT:", parseBody); // 🔥 DEBUG
+
+    const parseRes = await fetch("/api/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(parseBody),
+    });
+
+    const parseJson = await parseRes.json();
+    console.log("PARSE RESPONSE:", parseJson); // 🔥 DEBUG
+
+    setUploading(false);
+
+    if (!parseRes.ok || !parseJson.success) {
+      setStatus("Parse failed.");
+      console.error("Parse failed:", parseJson);
+      alert("Parse failed: " + parseJson.error);
+      return;
+    }
+
+    setStatus("Completed.");
+    onUploadComplete({ upload: uploadJson, parse: parseJson });
+  }
+
+  return (
+    <div className="p-4 border rounded-xl bg-white shadow-sm">
+      <label className="block font-semibold mb-2">Upload Document</label>
+
+      <input
+        type="file"
+        onChange={handleUpload}
+        disabled={uploading}
+        className="border p-2 rounded"
+      />
+
+      {status && <p className="text-sm mt-2">{status}</p>}
+      {fileName && <p className="text-sm mt-2">Uploaded: {fileName}</p>}
+    </div>
+  );
+}

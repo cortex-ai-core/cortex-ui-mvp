@@ -1,0 +1,156 @@
+// =============================================================
+//  STEP 43 — INFERENCE ENGINE (FINAL FIXED VERSION)
+//  Correctly handles:
+//  - strategic-decision
+//  - strategic-vision
+//  - risk
+//  - alignment
+//  - analysis
+//  - creative
+//  - general
+//  - doctrine
+// =============================================================
+
+export function inferPaths({
+  intent,
+  context,
+  evidence,
+  doctrine = {},
+}: {
+  intent: any;
+  context: any;
+  evidence: any;
+  doctrine?: any;
+}) {
+  const trace: string[] = [];
+  trace.push("Inference initiated.");
+
+  const intentType = intent?.type || intent;
+  const evidenceCount = evidence?.weighted?.length ?? 0;
+
+  const nonEvidenceIntents = [
+    "creative",
+    "writing",
+    "general",
+    "summary",
+    "explanation",
+  ];
+
+  // -------------------------------------------------------------
+  // EVIDENCE REQUIREMENT CHECK
+  // -------------------------------------------------------------
+  if (evidenceCount === 0 && !nonEvidenceIntents.includes(intentType)) {
+    trace.push("Insufficient evidence for evidence-dependent intent.");
+    return {
+      bestPath: "insufficient",
+      confidence: 0.1,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // STRATEGIC — DECISION
+  // -------------------------------------------------------------
+  if (intentType === "strategic-decision") {
+    trace.push("Strategic decision pathway selected.");
+    return {
+      bestPath: "strategic-decision",
+      confidence: evidence?.strength ?? 0.9,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // STRATEGIC — LONG-TERM VISION
+  // -------------------------------------------------------------
+  if (intentType === "strategic-vision") {
+    trace.push("Strategic vision pathway selected.");
+    return {
+      bestPath: "strategic-vision",
+      confidence: evidence?.strength ?? 0.9,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // LEGACY STRATEGIC (fallback)
+  // -------------------------------------------------------------
+  if (intentType === "strategic") {
+    trace.push("Legacy strategic pathway selected.");
+    return {
+      bestPath: "strategic-decision",
+      confidence: evidence?.strength ?? 0.85,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // RISK PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "risk") {
+    trace.push("Risk pathway selected.");
+    return {
+      bestPath: "risk",
+      confidence: evidence?.strength ?? 0.9,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ALIGNMENT PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "alignment") {
+    trace.push("Alignment pathway selected.");
+    return {
+      bestPath: "alignment",
+      confidence: evidence?.strength ?? 0.8,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // CREATIVE (WRITING)
+  // -------------------------------------------------------------
+  if (intentType === "creative") {
+    trace.push("Creative pathway selected.");
+    return {
+      bestPath: "creative",
+      confidence: 0.95,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ANALYSIS PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "analysis") {
+    trace.push("Analysis pathway selected.");
+    return {
+      bestPath: "analysis",
+      confidence: evidence?.strength ?? 0.7,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // GENERAL QUESTIONS
+  // -------------------------------------------------------------
+  if (intentType === "general") {
+    trace.push("General intent → creative/informational.");
+    return {
+      bestPath: "creative",
+      confidence: 0.9,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // DEFAULT — INSUFFICIENT
+  // -------------------------------------------------------------
+  trace.push("No valid intent → insufficient.");
+  return {
+    bestPath: "insufficient",
+    confidence: 0.3,
+    trace,
+  };
+}

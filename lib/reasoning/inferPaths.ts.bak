@@ -1,0 +1,136 @@
+// =============================================================
+//  STEP 43 — INFERENCE ENGINE (FULLY PATCHED)
+//  - Determines which reasoning pathway Cortéx should use.
+//  - FIXES the "always insufficient" bug.
+//  - Supports creative, general, writing, doctrine alignment,
+//    strategic, risk, and analytical intents.
+// =============================================================
+
+export function inferPaths({
+  intent,
+  context,
+  evidence,
+  doctrine = {},
+}: {
+  intent: any;
+  context: any;
+  evidence: any;
+  doctrine?: any;
+}) {
+  const trace: string[] = [];
+  trace.push("Inference initiated.");
+
+  // Normalize intent type
+  const intentType = intent?.type || intent;
+
+  // -------------------------------------------------------------
+  // 1. DEFINE INTENTS THAT DO NOT REQUIRE EVIDENCE
+  // -------------------------------------------------------------
+  const nonEvidenceIntents = [
+    "creative",
+    "writing",
+    "general",
+    "summary",
+    "explanation",
+  ];
+
+  const evidenceCount = evidence?.weighted?.length ?? 0;
+
+  // -------------------------------------------------------------
+  // 2. EVIDENCE CHECK ONLY FOR INTENTS THAT REQUIRE IT
+  // -------------------------------------------------------------
+  if (evidenceCount === 0 && !nonEvidenceIntents.includes(intentType)) {
+    trace.push("PATCH: Evidence insufficient for evidence-dependent intent.");
+
+    return {
+      bestPath: "insufficient",
+      confidence: 0.1,
+      alternatives: [],
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 3. RISK PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "risk") {
+    trace.push("Risk pathway selected.");
+    return {
+      bestPath: "risk",
+      confidence: evidence?.strength ?? 0.9,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 4. STRATEGIC PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "strategic") {
+    trace.push("Strategic pathway selected.");
+    return {
+      bestPath: "strategic",
+      confidence: evidence?.strength ?? 0.75,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 5. DOCTRINE ALIGNMENT PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "alignment") {
+    trace.push("Alignment pathway selected.");
+    return {
+      bestPath: "alignment",
+      confidence: evidence?.strength ?? 0.8,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 6. CREATIVE PATHWAY
+  //    (Used for writing tasks, generative tasks, etc.)
+  // -------------------------------------------------------------
+  if (intentType === "creative") {
+    trace.push("Creative pathway selected.");
+    return {
+      bestPath: "creative",
+      confidence: 0.95,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 7. ANALYSIS PATHWAY
+  // -------------------------------------------------------------
+  if (intentType === "analysis") {
+    trace.push("Analysis pathway → strategic mode activated.");
+    return {
+      bestPath: "strategic",
+      confidence: evidence?.strength ?? 0.7,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 8. GENERAL INTENT
+  //    (This is used for natural questions with no strict category)
+  // -------------------------------------------------------------
+  if (intentType === "general") {
+    trace.push("General pathway → treat as creative/informational.");
+    return {
+      bestPath: "creative",
+      confidence: 0.9,
+      trace,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 9. DEFAULT FALLBACK
+  // -------------------------------------------------------------
+  trace.push("No valid intent detected → insufficient.");
+  return {
+    bestPath: "insufficient",
+    confidence: 0.3,
+    trace,
+  };
+}

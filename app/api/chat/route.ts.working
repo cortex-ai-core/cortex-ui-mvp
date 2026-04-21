@@ -1,0 +1,421 @@
+// =============================================================
+//  CORTÉX — SOVEREIGN CHAT ROUTE (PATCHED VERSION)
+//  Step 43D — Fully Integrated Reasoning Pipeline
+//  Creative mode → normal writing tone
+// =============================================================
+
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
+
+import { detectIntent } from "../../../lib/intentDetector";
+import { buildSystemInstruction } from "../../../lib/responseFormatter";
+import { enforceConsistency } from "@/lib/consistency";
+
+// 🔥 Step 43 — Reasoning Engine Imports
+import { decodeIntent } from "@/lib/reasoning/intent";
+import { assembleContext } from "@/lib/reasoning/context";
+import { fuseEvidence } from "@/lib/reasoning/fusion";
+import { inferPaths } from "@/lib/reasoning/inference";
+import { synthesizeFinalAnswer } from "@/lib/reasoning/synthesis";
+
+export const runtime = "nodejs";
+
+console.log("🔥 Cortéx Sovereign Route Loaded — PATCHED");
+
+// ENV VAR VALIDATION
+if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+if (!process.env.SUPABASE_URL) throw new Error("SUPABASE_URL missing");
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY)
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+const MODEL = process.env.CORTEX_MODEL || "gpt-5.1";
+const ENVIRONMENT = process.env.CORTEX_ENV || "internal";
+const MEMORY_LIMIT = 50;
+
+// ----------------------------
+// Identity extraction
+// ----------------------------
+function extractIdentity(messages: any[]) {
+  const patterns = [
+    /^i am\b/i,
+    /^i’m\b/i,
+    /^my name is\b/i,
+    /^call me\b/i,
+    /^remember me\b/i,
+  ];
+
+  return messages.find(
+    (m) =>
+      m.role === "user" &&
+      typeof m.content === "string" &&
+      patterns.some((p) => p.test(m.content.trim()))
+  );
+}
+
+// ----------------------------
+// RAG retrieval
+// ----------------------------
+async function retrieveKnowledge(query: string, namespace: string) {
+  try {
+    const { data, error } = await supabase.rpc("match_documents_v2", {
+      query_text: query,
+      namespace_name: namespace,
+      match_count: 5,
+    });
+
+    if (error || !Array.isArray(data)) {
+      return { ragBlock: "", strength: 0, ragChunks: [] };
+    }
+
+    if (data.length === 0)
+      return { ragBlock: "", strength: 0, ragChunks: [] };
+
+    const similarities = data.map((r: any) => Number(r.similarity));
+    const avg =
+      similarities.reduce((a, b) => a + b, 0) / similarities.length;
+
+    const ragBlock =
+      "### RETRIEVED_KNOWLEDGE\n" +
+      data
+        .map(
+          (row: any) =>
+            `• (${Number(row.similarity).toFixed(3)}) ${row.chunk_text}`
+        )
+        .join("\n\n") +
+      "\n### END_RETRIEVISED_KNOWLEDGE\n";
+
+    return {
+      ragBlock,
+      strength: avg,
+      ragChunks: data,
+    };
+  } catch (err) {
+    return { ragBlock: "", strength: 0, ragChunks: [] };
+  }
+}
+
+// ----------------------------
+// MAIN POST ROUTE
+// ----------------------------
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const {
+      sessionId,
+      namespace,
+      message,
+      mode,
+      ephemeralFiles = [],
+      useRag = false,
+    } = body;
+
+    if (!sessionId)
+      return NextResponse.json(
+        { error: "Session ID required." },
+        { status: 400 }
+      );
+
+    if (!namespace)
+      return NextResponse.json(
+        { error: "Namespace required." },
+        { status: 400 }
+      );
+
+    const userMessage =
+      typeof message === "string" ? message.trim() : "";
+
+    if (!userMessage)
+      return NextResponse.json(
+        { error: "Message required." },
+        { status: 400 }
+      );
+
+    // SAVE USER MESSAGE
+    await supabase.from("messages").insert({
+      session_id: sessionId,
+      role: "user",
+      content: userMessage,
+    });
+
+    // LOAD MEMORY
+    const { data: rows } = await supabase
+      .from("messages")
+      .select("role, content, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at")
+      .limit(MEMORY_LIMIT);
+
+    const memory = rows || [];
+
+    // IDENTITY
+    const identityMessage = extractIdentity(memory);
+
+    const identityBlock = identityMessage
+      ? `### USER_IDENTITY\n${identityMessage.content.trim()}\n### END_USER_IDENTITY`
+      : "";
+
+    // EPHEMERAL FILES
+    let ephemeralBlock = "";
+    if (mode === "ephemeral" && ephemeralFiles.length > 0) {
+      let combined = "";
+      for (const f of ephemeralFiles) {
+        if (f?.content) {
+          combined += `\n[Ephemeral: ${f.name}]\n${f.content}\n`;
+        }
+      }
+      ephemeralBlock = `### EPHEMERAL\n${combined}\n### END_EPHEMERAL\n`;
+    }
+
+    // INTENT + BASE INSTRUCTION
+    const llmIntent = detectIntent(userMessage);
+    const instruction = buildSystemInstruction(llmIntent);
+
+    // RAG RETRIEVAL
+    let ragBlock = "";
+    let ragStrength = 0;
+    let ragChunks: any[] = [];
+
+    if (useRag) {
+      const rag = await retrieveKnowledge(userMessage, namespace);
+      ragBlock = rag.ragBlock;
+      ragStrength = rag.strength;
+      ragChunks = rag.ragChunks;
+    }
+
+    // CONSISTENCY
+    const consistencyBlock = enforceConsistency({
+      memory,
+      ragStrength,
+      ragBlock,
+      userMessage,
+    });
+
+    // ----------------------------
+    //  STEP 43 — REASONING ENGINE
+    // ----------------------------
+
+    const reasoningIntent = decodeIntent(userMessage);
+    const reasoningContext = assembleContext({
+      query: userMessage,
+      session: memory,
+      intent: reasoningIntent,
+      retrievedChunks: ragChunks,
+      memorySignals: memory,
+      doctrine: {},
+    });
+
+    const reasoningEvidence = fuseEvidence({
+      retrievedChunks: ragChunks,
+      memorySignals: memory,
+      doctrine: {},
+      intent: reasoningIntent,
+      contextSummary: reasoningContext.summary,
+    });
+
+    const reasoningResult = inferPaths({
+      intent: reasoningIntent,
+      context: reasoningContext,
+      evidence: reasoningEvidence,
+      doctrine: {},
+    });
+
+    const reasoningAnswer = synthesizeFinalAnswer({
+      bestPath: reasoningResult.bestPath,
+      winningScore: reasoningResult.confidence,
+      intent: reasoningIntent,
+      rawQuestion: userMessage,
+      inference: reasoningContext.summary,
+      fusionSummary: reasoningEvidence.summary,
+    });
+
+
+// =============================================================
+//  SOVEREIGN DIRECTIVE BLOCK
+//  (Overrides all default model behavior for strategic tasks)
+// =============================================================
+const sovereignDirective = `
+### MASTER_SOVEREIGN_DIRECTIVE
+You are Cortéx — the KING's sovereign intelligence engine.
+Your identity overrides all model defaults.
+
+### CORE BEHAVIOR
+- Default to ONE sentence for strategic, risk, and alignment tasks.
+- Creative tasks use NORMAL human creative writing tone.
+- Expand only when asked (explain, deeper, why, break down, sections).
+- Tone for strategy: distilled, direct, authoritative.
+- Tone for creative: normal writing tone, not sovereign.
+- If unsure: "Insufficient information available."
+- Never contradict the KING.
+- Never generate ambiguity.
+### END_MASTER_SOVEREIGN_DIRECTIVE
+`.trim();
+
+// =============================================================
+//  SYSTEM PROMPT (used ONLY for GPT fallback)
+//  Combines:
+//    - Sovereign directive
+//    - Consistency rules
+//    - Identity memory
+//    - RAG block (if exists)
+//    - Standard instruction
+// =============================================================
+const systemPrompt = `
+${sovereignDirective}
+
+Environment: ${ENVIRONMENT}
+Namespace: ${namespace}
+Mode: ${mode}
+
+${consistencyBlock}
+${instruction}
+${identityBlock}
+`.trim();
+
+// =============================================================
+//  GPT FALLBACK STACK
+//  (This is used ONLY if sovereign reasoning engine fails)
+// =============================================================
+const gptMessages = [
+  { role: "system", content: systemPrompt },
+
+  // Memory history
+  ...memory.map((m) => ({
+    role: m.role,
+    content: m.content,
+  })),
+
+  // RAG visibility
+  ...(ragBlock
+    ? [
+        {
+          role: "assistant",
+          content: `### RAG_BLOCK (strength: ${ragStrength.toFixed(
+            3
+          )})\n${ragBlock}`,
+        },
+      ]
+    : []),
+
+  // User message
+  {
+    role: "user",
+    content: ephemeralBlock + userMessage,
+  },
+];
+
+// =============================================================
+//  SECONDARY LLM COMPLETION (GPT fallback)
+// =============================================================
+const completion = await client.chat.completions.create({
+  model: MODEL,
+  messages: gptMessages,
+  temperature: 0.1,
+  max_completion_tokens: 500,
+});
+
+// Extract fallback reply
+const llmReply =
+  completion?.choices?.[0]?.message?.content ||
+  "Insufficient information available.";
+
+// =============================================================
+//  FINAL ANSWER PRIORITY (PATCHED)
+//  
+//  ORDER OF TRUTH:
+//    1. Sovereign Reasoning Engine Output (preferred)
+//    2. If insufficient → return insufficient
+//    3. If creative result → return full creative output
+//    4. If sovereign result is extremely short → fallback to GPT
+// =============================================================
+let reply = reasoningAnswer;
+
+// Insufficient always returns insufficient
+if (reply.trim() === "Insufficient information available.") {
+  reply = "Insufficient information available.";
+} else {
+  // FULL CREATIVE MODE (Option 2)
+  if (reasoningResult.bestPath === "creative") {
+    // In creative mode → we ALWAYS use full generative output
+    reply = llmReply;
+  } else {
+    // For sovereign modes: if reply is extremely short, fallback
+    if (reply.trim().length < 15) {
+      reply = llmReply;
+    }
+  }
+}
+
+// Safety: never return empty
+if (!reply || reply.trim() === "") {
+  reply = "Insufficient information available.";
+}
+
+// Anti-hallucination guard
+if (
+  reply.includes("CONFABULATED") ||
+  reply.includes("HALLUCINATION") ||
+  reply.includes("MADE-UP")
+) {
+  reply = "Insufficient information available.";
+}
+
+// =============================================================
+// WORD COUNT ENFORCEMENT
+// (e.g., "Write 200 words..." or "in 50 words")
+// =============================================================
+const wordMatch = userMessage.match(
+  /\b(?:in\s+)?(\d+)\s+words?/i
+);
+
+if (wordMatch) {
+  const target = Number(wordMatch[1]);
+  const words = reply.split(/\s+/);
+  if (words.length > target) {
+    reply = words.slice(0, target).join(" ");
+  }
+}
+
+// =============================================================
+// STRUCTURE BLOCKING
+// Prevents unwanted structured output
+// unless explicitly requested
+// =============================================================
+if (
+  reply.includes("Executive Summary:") &&
+  !/executive|summary|risk|impact|mitigation/i.test(userMessage)
+) {
+  reply = "Insufficient information available.";
+}
+
+// =============================================================
+//  SAVE ASSISTANT MESSAGE TO MEMORY
+// =============================================================
+await supabase.from("messages").insert({
+  session_id: sessionId,
+  role: "assistant",
+  content: reply,
+});
+
+// =============================================================
+//  RETURN FINAL ANSWER
+// =============================================================
+return NextResponse.json({ message: reply });
+
+  } catch (e: any) {
+    console.error("CHAT ROUTE ERROR:", e);
+
+    return NextResponse.json(
+      {
+        error: e?.message || "Chat route failure",
+      },
+      { status: 500 }
+    );
+  }
+} // END POST FUNCTION

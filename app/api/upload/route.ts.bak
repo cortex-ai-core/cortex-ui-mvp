@@ -1,0 +1,104 @@
+import { NextResponse } from "next/server";
+import { createRouteClient } from "@/lib/supabase/route";
+
+import { hasPermission } from "@/lib/auth/hasPermission";
+
+export async function POST(request: Request) {
+  try {
+    // ------------------------------------------------------------
+    // INIT SUPABASE SERVER CLIENT
+    // ------------------------------------------------------------
+const supabase = createRouteClient();
+
+    // ------------------------------------------------------------
+    // AUTH: Get calling user
+    // ------------------------------------------------------------
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const role = user.user_metadata?.role;
+
+    // ------------------------------------------------------------
+    // RBAC: Check upload permission
+    // ------------------------------------------------------------
+    if (!hasPermission(role, "upload_documents")) {
+      return NextResponse.json(
+        { error: "Forbidden. You do not have upload permissions." },
+        { status: 403 }
+      );
+    }
+
+    // ------------------------------------------------------------
+    // PARSE MULTIPART FORM DATA
+    // ------------------------------------------------------------
+    const formData = await request.formData();
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json(
+        { error: "No file uploaded." },
+        { status: 400 }
+      );
+    }
+
+    // ------------------------------------------------------------
+    // SAVE METADATA ROW IN 'documents'
+    // ------------------------------------------------------------
+    const { data: docRow, error: insertError } = await supabase
+      .from("documents")
+      .insert({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        user_id: user.id
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Insert metadata error:", insertError);
+      return NextResponse.json(
+        { error: "Failed to save metadata." },
+        { status: 500 }
+      );
+    }
+
+    // ------------------------------------------------------------
+    // AUDIT LOG
+    // ------------------------------------------------------------
+    const { error: auditError } = await supabase.from("audit_logs").insert({
+      event_type: "document_uploaded",
+      user_id: user.id,
+      target_user_id: user.id,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        filename: file.name,
+        type: file.type,
+        size: file.size
+      }
+    });
+
+    if (auditError) {
+      console.error("Audit error:", auditError);
+    }
+
+    return NextResponse.json(
+      { success: true, document: docRow },
+      { status: 200 }
+    );
+
+  } catch (err) {
+    console.error("🔥 Upload route fatal error:", err);
+    return NextResponse.json(
+      { error: "Server failure during upload." },
+      { status: 500 }
+    );
+  }
+}
+

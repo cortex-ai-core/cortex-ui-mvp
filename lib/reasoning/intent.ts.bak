@@ -1,0 +1,109 @@
+// =============================================================
+//  CORTÉX — SOVEREIGN INTENT DECODER (FULL FILE)
+//  Step 43D — Distinguishes Decision Strategy vs Vision Strategy
+// =============================================================
+
+export function decodeIntent(question: string) {
+  const q = question.toLowerCase().trim();
+
+  // =============================================================
+  // STRATEGIC — DECISION QUESTIONS (Yes/No Strategy)
+  // =============================================================
+  const strategicDecisionKeywords = [
+    "should we",
+    "should i",
+    "should the company",
+    "should sollucio",
+    "should our team",
+    "should the firm",
+    "expand",
+    "invest",
+    "divest",
+    "enter",
+    "scale",
+    "move into",
+    "pursue",
+    "is it wise",
+    "is it time to",
+  ];
+
+  if (strategicDecisionKeywords.some(k => q.includes(k))) {
+    return { type: "strategic-decision" };
+  }
+
+  // =============================================================
+  // STRATEGIC — LONG-TERM VISION QUESTIONS
+  // =============================================================
+  const strategicVisionKeywords = [
+    "what do you see long-term",
+    "what's the long-term",
+    "long term",
+    "long-term view",
+    "future state",
+    "where is this heading",
+    "what happens over time",
+    "how does this unfold",
+    "long run",
+  ];
+
+  if (strategicVisionKeywords.some(k => q.includes(k))) {
+    return { type: "strategic-vision" };
+  }
+
+  // =============================================================
+  // RISK QUESTIONS
+  // =============================================================
+  if (
+    q.includes("risk") ||
+    q.includes("downside") ||
+    q.includes("exposure") ||
+    q.includes("threat")
+  ) {
+    return { type: "risk" };
+  }
+
+  // =============================================================
+  // DOCTRINE / ALIGNMENT
+  // =============================================================
+  if (
+    q.includes("align") ||
+    q.includes("alignment") ||
+    q.includes("doctrine") ||
+    q.includes("king’s doctrine") ||
+    q.includes("kings doctrine") ||
+    q.includes("king doctrine")
+  ) {
+    return { type: "alignment" };
+  }
+
+  // =============================================================
+  // CREATIVE MODE (Writing / Story / Word count)
+  // =============================================================
+  if (
+    q.startsWith("write") ||
+    q.includes("story") ||
+    q.includes("essay") ||
+    q.includes("poem") ||
+    /\b(\d+)\s+words?\b/.test(q)
+  ) {
+    return { type: "creative" };
+  }
+
+  // =============================================================
+  // ANALYSIS / DEPTH MODE
+  // =============================================================
+  if (
+    q.includes("explain") ||
+    q.includes("analyze") ||
+    q.includes("break down") ||
+    q.includes("go deeper") ||
+    q.includes("why is that")
+  ) {
+    return { type: "analysis" };
+  }
+
+  // =============================================================
+  // DEFAULT
+  // =============================================================
+  return { type: "general" };
+}

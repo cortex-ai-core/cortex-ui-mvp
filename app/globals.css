@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================
+   GLOBAL RESET + BASE STYLING (CORTÉX CLEAN UI)
+========================================================= */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* 🔥 softer SaaS background */
+  background-color: #f7f7f8;
+
+  color: #111;
+}
+
+/* =========================================================
+   INPUT NORMALIZATION (fix ugly default inputs)
+========================================================= */
+
+input,
+button,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+/* Remove browser weirdness */
+input {
+  outline: none;
+  border: 1px solid #d1d5db; /* subtle gray */
+  border-radius: 10px;
+  padding: 0 12px;
+  height: 44px;
+}
+
+/* Focus state */
+input:focus {
+  border-color: #000;
+}
+
+/* =========================================================
+   BUTTON BASE
+========================================================= */
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 10px;
+}
+
+/* =========================================================
+   SCROLL (optional polish)
+========================================================= */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border-radius: 6px;
+}

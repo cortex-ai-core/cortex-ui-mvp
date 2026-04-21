@@ -1,0 +1,155 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+interface MessageBubbleProps {
+  id?: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  sources?: string[]; // 🔥 NEW (optional)
+}
+
+export default function MessageBubble({
+  id,
+  role,
+  content,
+  sources = [],
+}: MessageBubbleProps) {
+  const bubbleId = id || crypto.randomUUID();
+
+  const isUser = role === "user";
+  const isSystem = role === "system";
+
+  const [displayContent, setDisplayContent] = useState(content);
+
+  // STREAM FIDELITY REFS
+  const incomingRef = useRef(content);
+  const renderedRef = useRef("");
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    incomingRef.current = content;
+
+    if (incomingRef.current === renderedRef.current) return;
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+    const update = () => {
+      const incoming = incomingRef.current;
+      const rendered = renderedRef.current;
+
+      if (incoming !== rendered) {
+        renderedRef.current = incoming;
+        setDisplayContent(incoming);
+      }
+
+      if (incomingRef.current !== renderedRef.current) {
+        rafRef.current = requestAnimationFrame(update);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(update);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [content, role]);
+
+  // ===============================
+  // PREMIUM ROLE STYLING
+  // ===============================
+  const bubbleClass = `
+    px-5 py-3 
+    max-w-[78%]
+    rounded-3xl 
+    border
+    shadow-[0_2px_8px_rgba(0,0,0,0.06)]
+    backdrop-blur-sm
+    transition-all 
+    duration-200
+    ${
+      isSystem
+        ? "bg-[#fffceb] text-gray-900 border-[#f0e6a8]"
+        : isUser
+        ? "bg-black text-white border-[#1a1a1a] shadow-[0_3px_12px_rgba(0,0,0,0.25)]"
+        : "bg-white text-black border-[#ececec]"
+    }
+  `;
+
+  const assistantGlow =
+    !isUser && !isSystem ? { boxShadow: "0 0 14px rgba(0,0,0,0.08)" } : {};
+
+  return (
+    <motion.div
+      key={bubbleId}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className={`w-full flex ${isUser ? "justify-end" : "justify-start"} mb-5`}
+    >
+      <motion.div style={assistantGlow} className={bubbleClass}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            p: (props) => (
+              <p
+                style={{
+                  margin: "0 0 10px 0",
+                  fontSize: "15.5px",
+                  lineHeight: "1.62",
+                  whiteSpace: "pre-wrap",
+                }}
+                {...props}
+              />
+            ),
+            code: (props) => (
+              <code
+                style={{
+                  background: "#f4f4f4",
+                  padding: "2px 5px",
+                  borderRadius: "6px",
+                  fontSize: "14px",
+                }}
+                {...props}
+              />
+            ),
+            pre: (props) => (
+              <pre
+                style={{
+                  background: "#f4f4f4",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  overflowX: "auto",
+                  marginBottom: "12px",
+                }}
+                {...props}
+              />
+            ),
+          }}
+        >
+          {displayContent}
+        </ReactMarkdown>
+
+        {/* ===============================
+            🔥 SOURCE VISIBILITY (NEW)
+        =============================== */}
+        {!isUser && !isSystem && sources.length > 0 && (
+          <div
+            style={{
+              marginTop: "10px",
+              fontSize: "12px",
+              color: "#777",
+              borderTop: "1px solid #eee",
+              paddingTop: "6px",
+            }}
+          >
+            Based on: {sources.join(", ")}
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
