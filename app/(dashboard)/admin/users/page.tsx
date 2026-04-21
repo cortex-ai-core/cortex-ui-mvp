@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import styles from "../../ui.module.css";
+import styles from "../../../ui.module.css";
 import { requireAuth } from "@/lib/auth/requireAuth";
 import { hasPermission } from "@/lib/auth/hasPermission";
 import { createClient } from "@/lib/supabase/client";
@@ -121,9 +121,6 @@ export default function UserAdminPage() {
                 <tr key={u.id} className={styles.tableRow}>
                   <td>{u.email}</td>
 
-                  {/* ==========================
-                      ROLE DROPDOWN
-                  ========================== */}
                   <td>
                     <select
                       value={currentRole}
@@ -140,9 +137,6 @@ export default function UserAdminPage() {
 
                   <td>{new Date(u.created_at).toLocaleString()}</td>
 
-                  {/* ==========================
-                      SAVE BUTTON
-                  ========================== */}
                   <td>
                     {updatingId === u.id ? (
                       <span>Saving…</span>
@@ -159,4 +153,3 @@ export default function UserAdminPage() {
     </div>
   );
 }
-
