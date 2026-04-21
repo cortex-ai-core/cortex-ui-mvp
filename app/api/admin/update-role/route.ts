@@ -4,7 +4,7 @@ import { hasPermission } from "@/lib/auth/hasPermission";
 
 export async function POST(request: Request) {
   try {
-    const supabase = createServerClient(); // ✅ FIXED
+    const supabase = await createServerClient(); // ✅ FIXED (await added)
 
     // ------------------------------------------------------------
     // AUTH: Verify caller (Super Admin)
