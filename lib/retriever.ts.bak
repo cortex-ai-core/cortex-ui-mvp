@@ -6,12 +6,12 @@
 //   1. Computes embeddings for the query
 //   2. Calls Supabase RPC for vector search
 //   3. Computes lexical keyword score locally
-//   4. (Fallback) Returns results ranked by similarity + lexical score
+//   4. Merges + weights using Fusion Engine (Phase 3B)
 //   5. Returns top-K chunks for RAG
 
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import { RetrievedChunk } from "@/lib/fusion"; // ✅ keep type only
+import { rankFusion, RetrievedChunk } from "@/lib/fusion";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -78,12 +78,8 @@ export async function retrieveChunks(
       metadata: row.metadata || {},
     }));
 
-    // 4️⃣ Fallback ranking (no fusion dependency)
-    const ranked = vectorResults.sort((a, b) => {
-      const scoreA = (a.similarity || 0) + (a.lexicalScore || 0);
-      const scoreB = (b.similarity || 0) + (b.lexicalScore || 0);
-      return scoreB - scoreA;
-    });
+    // 4️⃣ Fuse results + rank
+    const ranked = rankFusion(vectorResults);
 
     // 5️⃣ Return top-K
     return ranked.slice(0, topK);
@@ -92,3 +88,4 @@ export async function retrieveChunks(
     return [];
   }
 }
+
