@@ -3,10 +3,10 @@ import { createServerClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth/requireAuth";
 
 export async function POST(req: Request) {
-  const supabase = createServerClient();
+  const supabase = await createServerClient(); // ✅ FIXED
 
   // Authenticate user
-  const authUser = await requireAuth();
+  const authUser = (await requireAuth()) as any; // ✅ FIXED
   const userId = authUser.id;
   const namespace = authUser.user_metadata?.namespace;
 
