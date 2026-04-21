@@ -35,6 +35,7 @@ export default function DocumentsPage() {
         query = query.eq("user_id", authUser.id);
       }
 
+      // All other roles see all documents (super_admin, admin, operator, viewer)
       const { data, error } = await query;
 
       if (error) {
@@ -50,7 +51,7 @@ export default function DocumentsPage() {
   }, []);
 
   // ============================================================
-  // DELETE HANDLER (FIXED → BACKEND ROUTE)
+  // DELETE HANDLER (Unaffected by 44C)
   // ============================================================
   async function handleDeleteClick(doc: any) {
     const confirmed = window.confirm(
@@ -61,14 +62,11 @@ export default function DocumentsPage() {
     setDeletingId(doc.id);
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/documents/delete`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: doc.id }),
-        }
-      );
+      const res = await fetch("/api/documents/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: doc.id }),
+      });
 
       const data = await res.json();
 
@@ -105,13 +103,20 @@ export default function DocumentsPage() {
         Persistent uploads available to Cortéx intelligence.
       </p>
 
+      {/* ============================================================
+          UPLOAD UI — RBAC-GATED (44B)
+      ============================================================ */}
       {user && hasPermission(user.role, "upload_documents") && (
         <div className={styles.uploadArea}>
           <p className={styles.uploadLabel}>Upload new document</p>
           <input type="file" />
+          {/* Hook this into your existing upload logic */}
         </div>
       )}
 
+      {/* ============================================================
+          DOCUMENT TABLE
+      ============================================================ */}
       <div className={styles.tableWrapper}>
         <table className={styles.table}>
           <thead>
@@ -162,3 +167,4 @@ export default function DocumentsPage() {
     </div>
   );
 }
+
