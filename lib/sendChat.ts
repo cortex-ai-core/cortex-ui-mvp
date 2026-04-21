@@ -113,9 +113,27 @@ export async function sendChat(
       body: JSON.stringify(payload),
     });
 
+    // 🔥 FIX — improved error handling (timeouts + backend messages)
     if (!res.ok) {
       const raw = await res.text().catch(() => "");
       console.error("❌ CHAT ROUTE ERROR RAW:", raw);
+
+      // Handle timeout gracefully
+      if (res.status === 504) {
+        const msg = "Model timeout — please retry.";
+        try {
+          onFinalText(msg);
+        } catch {}
+        return {
+          reply: msg,
+          ragUsed: false,
+          matchCount: 0,
+          results: [],
+          reasoningPath: "TIMEOUT",
+          raw,
+        };
+      }
+
       throw new Error(`Chat request failed: ${res.status}`);
     }
 
@@ -124,7 +142,7 @@ export async function sendChat(
     // ----------------------------------------------------
     const data = await res.json();
 
-    // 🔥 DLP SAFE HANDLING (NEW)
+    // 🔥 DLP SAFE HANDLING
     if (data?.error) {
       console.warn("🛡️ DLP / Backend Block Triggered:", data.error);
 

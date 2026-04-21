@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import styles from "../../../ui.module.css";
+import styles from "../../ui.module.css";
 import { requireAuth } from "@/lib/auth/requireAuth";
 import { hasPermission } from "@/lib/auth/hasPermission";
 import { createClient } from "@/lib/supabase/client";
@@ -106,3 +106,4 @@ export default function UserAdminPage() {
     </div>
   );
 }
+

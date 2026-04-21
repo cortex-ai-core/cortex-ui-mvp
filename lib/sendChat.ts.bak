@@ -35,7 +35,7 @@ export async function sendChat(
     } = config;
 
     // ----------------------------------------------------
-    // 🔐 VALIDATE IDENTITY (FROM CLIENT ONLY)
+    // 🔐 VALIDATE IDENTITY
     // ----------------------------------------------------
     if (
       !identityFromClient?.userId ||
@@ -50,7 +50,7 @@ export async function sendChat(
     const identity = mergeIdentity(selectedDivision);
 
     // ----------------------------------------------------
-    // 🆕 BUILD EPHEMERAL CONTEXT (CRITICAL FIX)
+    // 🆕 BUILD EPHEMERAL CONTEXT
     // ----------------------------------------------------
     const ephemeralContext = (ephemeralFiles || [])
       .filter((f) => f?.content?.trim())
@@ -58,21 +58,17 @@ export async function sendChat(
       .join("\n\n");
 
     // ----------------------------------------------------
-    // 1️⃣ Build API payload
+    // 1️⃣ Payload
     // ----------------------------------------------------
     const payload = {
       sessionId,
       message,
       namespace,
       mode,
-      ephemeralContext, // ✅ NEW
+      ephemeralContext,
       toneMode,
-
-      // ✅ CORRECT — SINGLE SOURCE OF TRUTH
       identity: {
         ...identityFromClient,
-
-        // 🔥 KEEP ADVANCED LAYER
         selectedDivision,
         effectivePersona: identity.effectivePersona,
         core: identity.core,
@@ -81,7 +77,7 @@ export async function sendChat(
     };
 
     // ----------------------------------------------------
-    // 2️⃣ Select backend URL
+    // 2️⃣ Backend URL
     // ----------------------------------------------------
     const BACKEND =
       process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
@@ -92,7 +88,7 @@ export async function sendChat(
     const url = `${BACKEND}/api/chat`;
 
     // ----------------------------------------------------
-    // 🔐 3️⃣ GET TOKEN
+    // 🔐 TOKEN
     // ----------------------------------------------------
     let token = "";
 
@@ -106,7 +102,7 @@ export async function sendChat(
     }
 
     // ----------------------------------------------------
-    // 4️⃣ Send request
+    // 4️⃣ Request
     // ----------------------------------------------------
     const res = await fetch(url, {
       method: "POST",
@@ -117,9 +113,27 @@ export async function sendChat(
       body: JSON.stringify(payload),
     });
 
+    // 🔥 FIX — improved error handling (timeouts + backend messages)
     if (!res.ok) {
       const raw = await res.text().catch(() => "");
       console.error("❌ CHAT ROUTE ERROR RAW:", raw);
+
+      // Handle timeout gracefully
+      if (res.status === 504) {
+        const msg = "Model timeout — please retry.";
+        try {
+          onFinalText(msg);
+        } catch {}
+        return {
+          reply: msg,
+          ragUsed: false,
+          matchCount: 0,
+          results: [],
+          reasoningPath: "TIMEOUT",
+          raw,
+        };
+      }
+
       throw new Error(`Chat request failed: ${res.status}`);
     }
 
@@ -128,6 +142,33 @@ export async function sendChat(
     // ----------------------------------------------------
     const data = await res.json();
 
+    // 🔥 DLP SAFE HANDLING
+    if (data?.error) {
+      console.warn("🛡️ DLP / Backend Block Triggered:", data.error);
+
+      const safeMessage =
+        data.error ||
+        "⚠️ Request blocked due to sensitive data policy.";
+
+      try {
+        onFinalText(safeMessage);
+      } catch (uiError) {
+        console.error("UI update failed:", uiError);
+      }
+
+      return {
+        reply: safeMessage,
+        ragUsed: false,
+        matchCount: 0,
+        results: [],
+        reasoningPath: "DLP_BLOCK",
+        raw: data,
+      };
+    }
+
+    // ----------------------------------------------------
+    // ✅ NORMAL FLOW
+    // ----------------------------------------------------
     const reply =
       data?.message ??
       data?.finalAnswer ??
@@ -140,9 +181,6 @@ export async function sendChat(
       console.error("UI update failed:", uiError);
     }
 
-    // ----------------------------------------------------
-    // 6️⃣ Return metadata
-    // ----------------------------------------------------
     return {
       reply,
       ragUsed: data?.ragApplied ?? false,
