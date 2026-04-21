@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@/lib/supabase/server"; // ✅ FIXED
 import { hasPermission } from "@/lib/auth/hasPermission";
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient(); // ✅ FIXED
 
     // ------------------------------------------------------------
     // AUTH: Get user session
