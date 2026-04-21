@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@/lib/supabase/server"; // ✅ FIXED
 import { hasPermission } from "@/lib/auth/hasPermission";
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient(); // ✅ FIXED
 
     // ------------------------------------------------------------
     // AUTH: Verify caller (Super Admin)
@@ -61,8 +61,8 @@ export async function POST(request: Request) {
     // ------------------------------------------------------------
     const { error: auditError } = await supabase.from("audit_logs").insert({
       event_type: "role_changed",
-      user_id: actingUser.id, // who performed the action
-      target_user_id: target_user_id, // whose role changed
+      user_id: actingUser.id,
+      target_user_id: target_user_id,
       timestamp: new Date().toISOString(),
       metadata: {
         previous_role,
@@ -87,4 +87,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
