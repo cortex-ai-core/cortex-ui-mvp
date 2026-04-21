@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { retrieveChunks } from "@/lib/retriever";
+import { retrieveDocuments } from "@/lib/retriever";
 
 export async function GET() {
   try {
-    const results = await retrieveChunks("test query for Cortéx");
+    const result = await retrieveDocuments("test query for Cortéx");
 
     return NextResponse.json(
       {
         success: true,
-        results: results,
-        count: results.length
+        results: result.results,
+        count: result.results.length
       },
       { status: 200 }
     );
@@ -20,3 +20,4 @@ export async function GET() {
     );
   }
 }
+
