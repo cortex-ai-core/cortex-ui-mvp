@@ -1,6 +1,7 @@
 // app/_ChatPage.tsx — SERVER COMPONENT
 
 import { cookies } from "next/headers";
+import { createServerClient } from "@/lib/supabase/server"; // ✅ FIXED
 import Page from "./page";
 
 export default async function ChatPageServerWrapper() {
@@ -12,4 +13,3 @@ export default async function ChatPageServerWrapper() {
 
   return <Page user={user} />;
 }
-
