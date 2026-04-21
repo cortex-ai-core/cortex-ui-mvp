@@ -43,6 +43,20 @@ export default function ChatClient({ user }: { user: any }) {
   const sessionInitialized = useRef(false);
 
   // =========================
+  // PERSONA MAP (🔥 NEW)
+  // =========================
+  const personaMap: Record<string, string> = {
+    core: "CEO",
+    advisory: "Advisory",
+    cybersecurity: "Cyber",
+    recruiting: "Recruiting",
+    datamanagement: "Data",
+    ventures: "Ventures",
+  };
+
+  const persona = personaMap[NAMESPACE] || "General";
+
+  // =========================
   // INIT SESSION
   // =========================
   useEffect(() => {
@@ -195,7 +209,7 @@ export default function ChatClient({ user }: { user: any }) {
   }
 
   // =========================
-  // 🔥 MODE DETECTION (NEW)
+  // MODE
   // =========================
   const mode = ephemeralFiles.length ? "Ephemeral" : "Persistent";
 
@@ -270,7 +284,7 @@ export default function ChatClient({ user }: { user: any }) {
       {/* MAIN CHAT */}
       <main className={styles.main}>
 
-        {/* 🔥 MODE INDICATOR (NEW) */}
+        {/* 🔥 MODE + PERSONA HEADER (NEW) */}
         <div style={{
           padding: "8px 20px",
           fontSize: "12px",
@@ -278,7 +292,7 @@ export default function ChatClient({ user }: { user: any }) {
           borderBottom: "1px solid #eee",
           background: "#fff"
         }}>
-          Mode: <strong>{mode}</strong>
+          Mode: <strong>{mode}</strong> | {persona}
         </div>
 
         <div className={styles.messagesContainer}>
@@ -295,7 +309,7 @@ export default function ChatClient({ user }: { user: any }) {
               <MessageBubble
                 role={m.role}
                 content={m.content}
-                sources={m.sources || []} // 🔥 SOURCE PASS-THROUGH
+                sources={m.sources || []}
               />
             </div>
           ))}
