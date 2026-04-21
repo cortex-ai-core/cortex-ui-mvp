@@ -34,7 +34,7 @@ export default function UserAdminPage() {
       setUser(authUser);
 
       // RBAC: Only super_admin can view this page
-      const role = (authUser as any)?.user_metadata?.role; // ✅ FIXED
+      const role = authUser?.user_metadata?.role;
       if (role !== "super_admin") {
         router.push("/chat");
         return;
@@ -115,7 +115,7 @@ export default function UserAdminPage() {
             )}
 
             {users.map((u) => {
-              const currentRole = (u as any)?.user_metadata?.role ?? "client"; // optional consistency
+              const currentRole = u.user_metadata?.role ?? "client";
 
               return (
                 <tr key={u.id} className={styles.tableRow}>
