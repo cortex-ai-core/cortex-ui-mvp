@@ -42,9 +42,6 @@ export default function ChatClient({ user }: { user: any }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const sessionInitialized = useRef(false);
 
-  // =========================
-  // PERSONA MAP (🔥 NEW)
-  // =========================
   const personaMap: Record<string, string> = {
     core: "CEO",
     advisory: "Advisory",
@@ -56,9 +53,6 @@ export default function ChatClient({ user }: { user: any }) {
 
   const persona = personaMap[NAMESPACE] || "General";
 
-  // =========================
-  // INIT SESSION
-  // =========================
   useEffect(() => {
     if (sessionInitialized.current) return;
     sessionInitialized.current = true;
@@ -71,16 +65,17 @@ export default function ChatClient({ user }: { user: any }) {
     }
   }, [sessionId]);
 
-  // =========================
-  // FETCH DOCUMENTS
-  // =========================
+  // ✅ PATCHED (ONLY CHANGE)
   const fetchDocuments = async () => {
     try {
       const token = localStorage.getItem("token");
 
-      const res = await fetch("http://localhost:8080/api/documents", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/documents`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       const data = await res.json();
       setDocuments(data.documents || []);
@@ -93,15 +88,13 @@ export default function ChatClient({ user }: { user: any }) {
     fetchDocuments();
   }, []);
 
-  // =========================
-  // DELETE DOCUMENT
-  // =========================
+  // ✅ PATCHED (ONLY CHANGE)
   const deleteDocument = async (documentId: string) => {
     try {
       const token = localStorage.getItem("token");
 
       const res = await fetch(
-        `http://localhost:8080/api/documents/${documentId}`,
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/documents/${documentId}`,
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
@@ -121,18 +114,12 @@ export default function ChatClient({ user }: { user: any }) {
     }
   };
 
-  // =========================
-  // AUTO SCROLL
-  // =========================
   useEffect(() => {
     setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 30);
   }, [messages]);
 
-  // =========================
-  // EPHEMERAL UPLOAD
-  // =========================
   async function handleEphemeralUpload(e: any) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -166,9 +153,6 @@ export default function ChatClient({ user }: { user: any }) {
     setEphemeralFiles((prev) => [...prev, ...newFiles]);
   }
 
-  // =========================
-  // SEND CHAT
-  // =========================
   async function handleSend() {
     const text = input.trim();
     if (!text || !sessionId) return;
@@ -208,18 +192,11 @@ export default function ChatClient({ user }: { user: any }) {
     }
   }
 
-  // =========================
-  // MODE
-  // =========================
   const mode = ephemeralFiles.length ? "Ephemeral" : "Persistent";
 
-  // =========================
-  // UI
-  // =========================
   return (
     <div className="flex h-screen w-full bg-[#f7f7f8] overflow-hidden">
 
-      {/* SIDEBAR */}
       <aside className={styles.sidebar}>
         <h1 className={styles.sidebarTitle}>Cortéx</h1>
 
@@ -231,7 +208,6 @@ export default function ChatClient({ user }: { user: any }) {
           <FileUploader namespace={NAMESPACE} onUploadComplete={fetchDocuments} />
         )}
 
-        {/* EPHEMERAL */}
         {hasPermission(role, "upload_ephemeral") && (
           <div className={styles.section}>
             <div className={styles.ephemeralLabel}>Ephemeral Upload</div>
@@ -255,7 +231,6 @@ export default function ChatClient({ user }: { user: any }) {
           </div>
         )}
 
-        {/* DOCUMENTS */}
         <div className={styles.section}>
           <h3>Documents</h3>
 
@@ -281,10 +256,8 @@ export default function ChatClient({ user }: { user: any }) {
         </div>
       </aside>
 
-      {/* MAIN CHAT */}
       <main className={styles.main}>
 
-        {/* 🔥 MODE + PERSONA HEADER (NEW) */}
         <div style={{
           padding: "8px 20px",
           fontSize: "12px",
@@ -323,7 +296,6 @@ export default function ChatClient({ user }: { user: any }) {
           <div ref={bottomRef} />
         </div>
 
-        {/* INPUT */}
         <div className={styles.inputBar}>
           <div className={styles.inputWrapper}>
             <div className={styles.inputRow}>
