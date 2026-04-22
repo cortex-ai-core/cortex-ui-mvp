@@ -19,10 +19,10 @@ export default function DocumentsPage() {
   // ============================================================
   useEffect(() => {
     async function load() {
-      const authUser = await requireAuth();
+      const authUser = (await requireAuth()) as any; // ✅ FIXED
       setUser(authUser);
 
-      const userRole = authUser?.user_metadata?.role;
+      const userRole = (authUser as any)?.user_metadata?.role; // ✅ FIXED
 
       let query = supabase
         .from("documents")
@@ -32,7 +32,7 @@ export default function DocumentsPage() {
       // Ownership enforcement:
       // Clients only see THEIR OWN documents.
       if (userRole === "client") {
-        query = query.eq("user_id", authUser.id);
+        query = query.eq("user_id", (authUser as any).id); // ✅ FIXED
       }
 
       const { data, error } = await query;
