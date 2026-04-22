@@ -29,6 +29,5 @@ const permissions = {
 };
 
 export function hasPermission(role: string, permission: string) {
-  return permissions[role]?.includes(permission) ?? false;
+  return (permissions as any)[role]?.includes(permission) ?? false; // ✅ FIXED
 }
-
