@@ -61,7 +61,7 @@ export async function runReasoningEngine(
     },
   });
 
-  // ✅ FIXED — STRICT inferPaths CONTRACT
+  // ✅ STRICT inferPaths CONTRACT
   const reasoning = inferPaths({
     intent,
     context: reasoningContext,
@@ -72,6 +72,7 @@ export async function runReasoningEngine(
 
   const { bestPath, confidence = 0.85 } = reasoning;
 
+  // ✅ STRICT synthesizeFinalAnswer CONTRACT
   const finalAnswer = synthesizeFinalAnswer({
     bestPath,
     winningScore: confidence,
@@ -79,7 +80,6 @@ export async function runReasoningEngine(
     rawQuestion: query,
     inference: reasoning,
     fusionSummary: fused.summary,
-    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ KEEP (if allowed)
   });
 
   return {
