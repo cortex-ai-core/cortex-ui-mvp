@@ -1,7 +1,5 @@
 // =============================================================
 //  CORTÉX — INFERENCE ENGINE v4 (Step 47 Final + Step 45C Fix)
-//  Fixes: diagnostic leakage → clean final_answer output
-//          reasoning minimized unless diagnostic mode is active
 // =============================================================
 
 export function inferPaths({
@@ -10,25 +8,19 @@ export function inferPaths({
   evidence,
   doctrine = {},
   inferenceWeight = 0.5,
-  isDiagnosticMode = false,   // ← NEW FLAG
+  isDiagnosticMode = false,
 }: {
   intent: any;
   context: any;
   evidence: any;
   doctrine: any;
   inferenceWeight: number;
-  isDiagnosticMode?: boolean; // ← NEW
+  isDiagnosticMode?: boolean;
 }) {
-  // ------------------------------
-  // Extract signals
-  // ------------------------------
   const signals = evidence?.signals || [];
   const contextSummary = context?.summary || "";
   const intentType = intent?.type || "unknown";
 
-  // -------------------------------------------------------------
-  // STEP 47 — DOMAIN SIGNAL ENGINE
-  // -------------------------------------------------------------
   const domainSignals =
     context?.domainSignals || evidence?.domainSignals || [];
   const topDomain =
@@ -43,10 +35,8 @@ export function inferPaths({
     }
   }
 
-  // ------------------------------
-  // Build reasoning paths
-  // ------------------------------
-  const paths = [];
+  // ✅ FIXED: explicit typing for paths
+  const paths: { name: string; score: number }[] = [];
 
   paths.push({
     name: "intent_driven",
@@ -74,9 +64,6 @@ export function inferPaths({
       domainWeight,
   });
 
-  // ------------------------------
-  // Normalize and select highest score
-  // ------------------------------
   const normalizedPaths = paths.map((p) => ({
     ...p,
     weightedScore: p.score * inferenceWeight,
@@ -87,15 +74,10 @@ export function inferPaths({
     if (p.weightedScore > bestPath.weightedScore) bestPath = p;
   }
 
-  // Confidence metric
   const maxScore = bestPath.weightedScore;
   const total = normalizedPaths.reduce((a, b) => a + b.weightedScore, 0);
   const confidence = total > 0 ? maxScore / total : 0.25;
 
-  // ------------------------------
-  // Step 47 Fix + Step 45C Alignment
-  // ------------------------------
-  // FULL reasoning ONLY when diagnostic mode is explicitly triggered.
   const reasoning = isDiagnosticMode
     ? generateReasoning({
         bestPath,
@@ -106,21 +88,18 @@ export function inferPaths({
         domainWeight,
         intentType,
       })
-    : ""; // ← NORMAL MODE RETURNS CLEAN REASONING (NO verbose text)
+    : "";
 
   return {
     bestPath,
     confidence,
     paths: normalizedPaths,
-    reasoning, // ← SAFE: empty in normal chat, verbose only in diag mode
+    reasoning,
     topDomain,
     domainSignals,
   };
 }
 
-// =============================================================
-// Natural-language explanation generator (diagnostic only)
-// =============================================================
 function generateReasoning({
   bestPath,
   normalizedPaths,
