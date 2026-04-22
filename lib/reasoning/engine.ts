@@ -67,7 +67,7 @@ export async function runReasoningEngine(
     evidence: fused,
     doctrine,
     inferenceWeight: 0.34,
-    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ FIXED
+    // ❌ REMOVED domainSignals (not part of inferPaths contract)
     variables: decomposition?.variables ?? [],
     signals: decomposition?.signals ?? [],
     topDomain: decomposition?.topDomain ?? null,
@@ -83,7 +83,7 @@ export async function runReasoningEngine(
     inference: reasoning,
     fusionSummary: fused.summary,
     topDomain: decomposition?.topDomain ?? null,
-    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ FIXED
+    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ KEEP (valid here)
   });
 
   return {
