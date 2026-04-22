@@ -6,12 +6,6 @@ export const runtime = "nodejs";
 // ✅ Prevent build-time execution
 export const dynamic = "force-dynamic";
 
-// Supabase client (safe at module level)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 // Simple chunker for safety
 function chunkText(text: string, size = 800): string[] {
   const chunks: string[] = [];
@@ -23,7 +17,7 @@ function chunkText(text: string, size = 800): string[] {
 
 export async function POST(req: Request) {
   try {
-    // ✅ Lazy init (ONLY at request time)
+    // ✅ ENV GUARDS
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "Missing OPENAI_API_KEY" },
@@ -31,9 +25,22 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { error: "Missing Supabase env vars" },
+        { status: 500 }
+      );
+    }
+
+    // ✅ Lazy init (ONLY at request time)
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
     const { text, chunk_id } = await req.json();
 
