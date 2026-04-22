@@ -61,16 +61,13 @@ export async function runReasoningEngine(
     },
   });
 
+  // ✅ FIXED — STRICT inferPaths CONTRACT
   const reasoning = inferPaths({
     intent,
     context: reasoningContext,
     evidence: fused,
     doctrine,
     inferenceWeight: 0.34,
-    // ❌ REMOVED domainSignals (not part of inferPaths contract)
-    variables: decomposition?.variables ?? [],
-    signals: decomposition?.signals ?? [],
-    topDomain: decomposition?.topDomain ?? null,
   });
 
   const { bestPath, confidence = 0.85 } = reasoning;
@@ -83,7 +80,7 @@ export async function runReasoningEngine(
     inference: reasoning,
     fusionSummary: fused.summary,
     topDomain: decomposition?.topDomain ?? null,
-    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ KEEP (valid here)
+    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ KEEP
   });
 
   return {
