@@ -81,7 +81,11 @@ Begin now.
       temperature: 0.0,
     });
 
-    const result = JSON.parse(completion.choices[0].message.content);
+    // ✅ FIXED — safe null handling
+    const raw = completion.choices[0].message.content;
+    if (!raw) throw new Error("Empty LLM response");
+
+    const result = JSON.parse(raw);
 
     const rankedIds: string[] = result.ranked_ids;
 
