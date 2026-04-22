@@ -22,16 +22,17 @@ export function mergeIdentity(selectedDivision: string | null): MergedIdentity {
 
   // Validate division key
   const division =
-    selectedDivision && Object.prototype.hasOwnProperty.call(DIVISION_PERSONAS, selectedDivision)
-      ? { ...DIVISION_PERSONAS[selectedDivision] }
+    selectedDivision &&
+    Object.prototype.hasOwnProperty.call(DIVISION_PERSONAS, selectedDivision)
+      ? { ...(DIVISION_PERSONAS as any)[selectedDivision] } // ✅ FIXED
       : null;
 
   // KING override — KING persona becomes authoritative persona
   if (selectedDivision === "king") {
     return {
       core,
-      division: DIVISION_PERSONAS.king,
-      effectivePersona: { ...core, ...DIVISION_PERSONAS.king },
+      division: (DIVISION_PERSONAS as any).king, // ✅ FIXED
+      effectivePersona: { ...core, ...(DIVISION_PERSONAS as any).king }, // ✅ FIXED
     };
   }
 
