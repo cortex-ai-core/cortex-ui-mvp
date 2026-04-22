@@ -3,13 +3,10 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+// ✅ Prevent build-time execution
+export const dynamic = "force-dynamic";
 
-// OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
-// Supabase client
+// Supabase client (safe at module level)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -26,6 +23,18 @@ function chunkText(text: string, size = 800): string[] {
 
 export async function POST(req: Request) {
   try {
+    // ✅ Lazy init (ONLY at request time)
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: "Missing OPENAI_API_KEY" },
+        { status: 500 }
+      );
+    }
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
     const { text, chunk_id } = await req.json();
 
     if (!text) {
@@ -49,17 +58,17 @@ export async function POST(req: Request) {
         return {
           text: chunk,
           embedding: response.data[0].embedding,
-          chunk_id: chunk_id ?? null
+          chunk_id: chunk_id ?? null,
         };
       })
     );
 
-    // 3️⃣ Insert into Supabase (correct column names only)
+    // 3️⃣ Insert into Supabase
     const { error } = await supabase.from("embeddings").insert(
       embeddings.map((e) => ({
         chunk_id: e.chunk_id,
         text: e.text,
-        embedding: e.embedding
+        embedding: e.embedding,
       }))
     );
 
@@ -86,4 +95,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
