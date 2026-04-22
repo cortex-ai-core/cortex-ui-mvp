@@ -4,12 +4,8 @@ import PDFParser from "pdf2json";
 import mammoth from "mammoth";
 
 export const runtime = "nodejs";
-
-// Supabase SERVICE ROLE client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// ✅ Prevent build-time execution
+export const dynamic = "force-dynamic";
 
 // Clean parsed text
 function cleanText(text: string): string {
@@ -26,12 +22,10 @@ function resolveType(type: string, originalName: string): "pdf" | "docx" | "txt"
 
   const lower = type.toLowerCase();
 
-  // Strong MIME checks
   if (lower.includes("pdf")) return "pdf";
   if (lower.includes("wordprocessingml") || lower.includes("msword")) return "docx";
   if (lower.includes("text")) return "txt";
 
-  // EXTENSION FALLBACK (PATCH)
   const ext = originalName.split(".").pop()?.toLowerCase();
   if (ext === "pdf") return "pdf";
   if (ext === "docx") return "docx";
@@ -42,6 +36,20 @@ function resolveType(type: string, originalName: string): "pdf" | "docx" | "txt"
 
 export async function POST(req: Request) {
   try {
+    // ✅ ENV GUARD (Supabase)
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { error: "Missing Supabase env vars" },
+        { status: 500 }
+      );
+    }
+
+    // ✅ Lazy init (ONLY at runtime)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+
     const body = await req.json();
     const { path, type, originalName, namespace } = body;
 
@@ -55,7 +63,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing file path." }, { status: 400 });
     }
 
-    // PATCHED TYPE RESOLUTION
     const normalizedType = resolveType(type, originalName || path);
     console.log("🔍 [PARSE] Resolved file type →", normalizedType);
 
@@ -82,12 +89,11 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(await data.arrayBuffer());
     let rawText = "";
 
-    // PATCH: PARSE ROUTER
     if (normalizedType === "pdf") {
       const pdfParser = new PDFParser();
       rawText = await new Promise<string>((resolve, reject) => {
         pdfParser.on("pdfParser_dataError", (err: any) =>
-          reject(err?.parserError ?? err) // ✅ FIXED
+          reject(err?.parserError ?? err)
         );
         pdfParser.on("pdfParser_dataReady", () =>
           resolve(pdfParser.getRawTextContent())
@@ -110,7 +116,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Call backend ingestion
     const ingestRes = await fetch(`${process.env.CORTEX_SERVER_URL}/api/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
