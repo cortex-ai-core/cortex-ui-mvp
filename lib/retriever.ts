@@ -11,7 +11,15 @@
 
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import { RetrievedChunk } from "@/lib/fusion"; // ✅ keep type only
+
+// ✅ FIXED — define locally instead of importing
+type RetrievedChunk = {
+  id?: string;
+  text: string;
+  similarity?: number;
+  lexicalScore?: number;
+  metadata?: any;
+};
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -70,7 +78,7 @@ export async function retrieveChunks(
     }
 
     // 3️⃣ Normalize result format
-    const vectorResults: RetrievedChunk[] = data.map((row: any) => ({
+    const vectorResults: RetrievedChunk[] = (data || []).map((row: any) => ({
       id: row.id,
       text: row.text || "",
       similarity: row.similarity || 0,
