@@ -7,11 +7,16 @@ export function enforceConsistency({
   ragStrength = 0,
   ragBlock = "",
   userMessage = "",
+}: {
+  memory?: any[];
+  ragStrength?: number;
+  ragBlock?: string;
+  userMessage?: string;
 }) {
   // 1. Extract the last assistant message
   const lastAssistant = [...memory]
     .reverse()
-    .find((m) => m.role === "assistant")?.content;
+    .find((m: any) => m.role === "assistant")?.content; // ✅ FIXED
 
   // 2. System-level "consistency guidance" injected before GPT call
   const rules: string[] = [];
