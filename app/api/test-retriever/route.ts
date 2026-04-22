@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { retrieveChunks } from "@/lib/retriever";
 
+// ✅ FORCE dynamic execution (prevents build-time execution)
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const results = await retrieveChunks("test query for Cortéx");
@@ -9,7 +12,7 @@ export async function GET() {
       {
         success: true,
         results: results,
-        count: results.length
+        count: results.length,
       },
       { status: 200 }
     );
