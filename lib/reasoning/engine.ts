@@ -79,8 +79,7 @@ export async function runReasoningEngine(
     rawQuestion: query,
     inference: reasoning,
     fusionSummary: fused.summary,
-    topDomain: decomposition?.topDomain ?? null,
-    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ KEEP
+    domainSignals: (decomposition as any)?.domainSignals ?? [], // ✅ KEEP (if allowed)
   });
 
   return {
