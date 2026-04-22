@@ -1,4 +1,4 @@
-export function inferPaths({ intent }) {
+export function inferPaths({ intent }: { intent: any }) {
   if (!intent?.type) return { bestPath: "general", confidence: 0.5 };
 
   if (intent.type === "strategic-decision") {
