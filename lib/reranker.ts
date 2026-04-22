@@ -12,7 +12,15 @@
 // It selects the BEST chunks based on true semantic meaning.
 
 import OpenAI from "openai";
-import { RetrievedChunk } from "@/lib/fusion";
+
+// ✅ FIXED — define locally instead of importing
+type RetrievedChunk = {
+  id?: string;
+  text: string;
+  similarity?: number;
+  lexicalScore?: number;
+  metadata?: any;
+};
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -30,10 +38,10 @@ export async function rerankChunks(
     const passages = retrieved
       .map(
         (c, i) => `
-[${i+1}]
+[${i + 1}]
 CHUNK ID: ${c.id}
-SIMILARITY: ${c.similarity.toFixed(3)}
-LEXICAL: ${c.lexicalScore.toFixed(3)}
+SIMILARITY: ${(c.similarity ?? 0).toFixed(3)}
+LEXICAL: ${(c.lexicalScore ?? 0).toFixed(3)}
 TEXT:
 ${c.text}
 `
@@ -67,7 +75,7 @@ Begin now.
 `;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.1-mini", // fast + perfect for ranking
+      model: "gpt-5.1-mini",
       response_format: { type: "json_object" },
       messages: [{ role: "user", content: prompt }],
       temperature: 0.0,
@@ -89,4 +97,3 @@ Begin now.
     return retrieved.slice(0, topK);
   }
 }
-
