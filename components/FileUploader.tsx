@@ -35,27 +35,29 @@ export default function FileUploader({ onUploadComplete, namespace }: any) {
       let successCount = 0;
 
       for (const file of files) {
+        const f = file as File; // ✅ FIXED
+
         let text = "";
 
         // ----------------------------------------------------
         // Extract text
         // ----------------------------------------------------
-        if (file.name.toLowerCase().endsWith(".docx")) {
+        if (f.name.toLowerCase().endsWith(".docx")) {
           const mammoth = await import("mammoth");
-          const buf = await file.arrayBuffer();
+          const buf = await f.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer: buf });
           text = result.value;
         } else {
-          text = await file.text();
+          text = await f.text();
         }
 
         if (!text.trim()) {
-          console.warn(`⚠ Skipping empty file: ${file.name}`);
+          console.warn(`⚠ Skipping empty file: ${f.name}`);
           continue;
         }
 
         // ----------------------------------------------------
-        // Send to /ingest (🔥 FIX APPLIED HERE)
+        // Send to /ingest
         // ----------------------------------------------------
         const res = await fetch(`${BACKEND}/ingest`, {
           method: "POST",
@@ -65,17 +67,17 @@ export default function FileUploader({ onUploadComplete, namespace }: any) {
           },
           body: JSON.stringify({
             text,
-            file_name: file.name, // 🔥 REQUIRED FIX
+            file_name: f.name, // unchanged
           }),
         });
 
         const json = await res.json();
-        console.log(`INGEST [${file.name}]`, json);
+        console.log(`INGEST [${f.name}]`, json);
 
         if (res.ok) {
           successCount++;
         } else {
-          console.error(`❌ Failed: ${file.name}`, json);
+          console.error(`❌ Failed: ${f.name}`, json);
         }
       }
 

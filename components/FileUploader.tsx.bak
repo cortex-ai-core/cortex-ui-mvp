@@ -55,7 +55,7 @@ export default function FileUploader({ onUploadComplete, namespace }: any) {
         }
 
         // ----------------------------------------------------
-        // Send to /ingest
+        // Send to /ingest (🔥 FIX APPLIED HERE)
         // ----------------------------------------------------
         const res = await fetch(`${BACKEND}/ingest`, {
           method: "POST",
@@ -65,10 +65,7 @@ export default function FileUploader({ onUploadComplete, namespace }: any) {
           },
           body: JSON.stringify({
             text,
-            namespace,
-            metadata: {
-              filename: file.name,
-            },
+            file_name: file.name, // 🔥 REQUIRED FIX
           }),
         });
 
