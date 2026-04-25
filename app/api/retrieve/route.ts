@@ -3,24 +3,34 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic"; // 🔥 prevent build-time execution
 
-if (!process.env.SUPABASE_URL) throw new Error("SUPABASE_URL missing");
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY)
-  throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
-if (!process.env.OPENAI_API_KEY)
-  throw new Error("OPENAI_API_KEY missing for RAG embeddings");
+// ✅ Lazy Supabase client (runtime only)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+  if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL missing");
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY missing");
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+  return createClient(url, key);
+}
+
+// ✅ Lazy OpenAI client (runtime only)
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) throw new Error("OPENAI_API_KEY missing");
+
+  return new OpenAI({ apiKey });
+}
 
 export async function POST(req: Request) {
   try {
+    // ✅ Initialize at runtime ONLY
+    const supabase = getSupabase();
+    const openai = getOpenAI();
+
     const { query, namespace, topK = 5 } = await req.json();
 
     if (!query || !namespace) {
