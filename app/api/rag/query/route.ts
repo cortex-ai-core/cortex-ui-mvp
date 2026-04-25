@@ -3,18 +3,37 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic"; // 🔥 CRITICAL
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+// ✅ Lazy OpenAI client (runtime only)
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+  if (!apiKey) {
+    throw new Error("Missing OPENAI_API_KEY");
+  }
+
+  return new OpenAI({ apiKey });
+}
+
+// ✅ Lazy Supabase client (runtime only)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(url, key);
+}
 
 export async function POST(req: Request) {
   try {
+    // ✅ Initialize at runtime ONLY
+    const openai = getOpenAI();
+    const supabase = getSupabase();
+
     const { query, topK = 5 } = await req.json();
 
     if (!query) {
@@ -49,7 +68,7 @@ export async function POST(req: Request) {
       {
         success: true,
         query,
-        matches: data, // Contains: id, file_id, text, similarity score
+        matches: data, // id, file_id, text, similarity score
       },
       { status: 200 }
     );
@@ -61,4 +80,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
