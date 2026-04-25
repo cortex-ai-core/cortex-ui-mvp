@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic"; // 🔥 CRITICAL FIX
+
 import { useEffect, useState } from "react";
 import styles from "../../../ui.module.css";
 import { requireAuth } from "@/lib/auth/requireAuth";

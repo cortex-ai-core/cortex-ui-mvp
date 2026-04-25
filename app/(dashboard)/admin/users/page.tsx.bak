@@ -34,7 +34,7 @@ export default function UserAdminPage() {
       setUser(authUser);
 
       // RBAC: Only super_admin can view this page
-      const role = authUser?.user_metadata?.role;
+      const role = (authUser as any)?.user_metadata?.role;
       if (role !== "super_admin") {
         router.push("/chat");
         return;
@@ -59,7 +59,6 @@ export default function UserAdminPage() {
     try {
       setUpdatingId(userId);
 
-      // Apply role update
       const { error } = await supabase.auth.admin.updateUserById(userId, {
         user_metadata: { role: newRole },
       });
@@ -68,7 +67,6 @@ export default function UserAdminPage() {
         console.error("Role update error:", error);
       }
 
-      // Refresh list
       const { data: refreshed, error: refreshErr } =
         await supabase.auth.admin.listUsers();
 
@@ -115,7 +113,7 @@ export default function UserAdminPage() {
             )}
 
             {users.map((u) => {
-              const currentRole = u.user_metadata?.role ?? "client";
+              const currentRole = (u as any)?.user_metadata?.role ?? "client";
 
               return (
                 <tr key={u.id} className={styles.tableRow}>
@@ -135,7 +133,7 @@ export default function UserAdminPage() {
                     </select>
                   </td>
 
-                  <td>{new Date(u.created_at).toLocaleString()}</td>
+                  <td>{new Date((u as any).created_at).toLocaleString()}</td>
 
                   <td>
                     {updatingId === u.id ? (
