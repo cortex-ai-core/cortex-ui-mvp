@@ -1,18 +1,13 @@
 // lib/retriever.ts
 //
 // Cortéx Unified Retriever (Phase 3C)
-//
-// This module:
-//   1. Computes embeddings for the query
-//   2. Calls Supabase RPC for vector search
-//   3. Computes lexical keyword score locally
-//   4. (Fallback) Returns results ranked by similarity + lexical score
-//   5. Returns top-K chunks for RAG
 
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ FIXED — define locally instead of importing
+// ------------------------
+// Types
+// ------------------------
 type RetrievedChunk = {
   id?: string;
   text: string;
@@ -21,17 +16,35 @@ type RetrievedChunk = {
   metadata?: any;
 };
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+// ------------------------
+// ✅ Lazy OpenAI client (runtime only)
+// ------------------------
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+  if (!apiKey) {
+    throw new Error("Missing OPENAI_API_KEY");
+  }
+
+  return new OpenAI({ apiKey });
+}
 
 // ------------------------
-// Lexical Score (simple keyword overlap)
+// ✅ Lazy Supabase client (runtime only)
+// ------------------------
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(url, key);
+}
+
+// ------------------------
+// Lexical Score
 // ------------------------
 function computeLexicalScore(query: string, text: string): number {
   const qWords = query.toLowerCase().split(/\W+/).filter(Boolean);
@@ -46,7 +59,7 @@ function computeLexicalScore(query: string, text: string): number {
     if (tSet.has(w)) matches++;
   }
 
-  return matches / qWords.length; // 0–1 score
+  return matches / qWords.length;
 }
 
 // ------------------------
@@ -57,6 +70,10 @@ export async function retrieveChunks(
   topK = 5
 ): Promise<RetrievedChunk[]> {
   try {
+    // ✅ Initialize at runtime ONLY
+    const openai = getOpenAI();
+    const supabase = getSupabase();
+
     // 1️⃣ Embed query
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
@@ -65,7 +82,7 @@ export async function retrieveChunks(
 
     const queryEmbedding = embeddingResponse.data[0].embedding;
 
-    // 2️⃣ Call Supabase RPC for vector search
+    // 2️⃣ Vector search
     const { data, error } = await supabase.rpc("cortex_vec_search", {
       query_embedding: queryEmbedding,
       match_threshold: 0.35,
@@ -77,7 +94,7 @@ export async function retrieveChunks(
       return [];
     }
 
-    // 3️⃣ Normalize result format
+    // 3️⃣ Normalize results
     const vectorResults: RetrievedChunk[] = (data || []).map((row: any) => ({
       id: row.id,
       text: row.text || "",
@@ -86,7 +103,7 @@ export async function retrieveChunks(
       metadata: row.metadata || {},
     }));
 
-    // 4️⃣ Fallback ranking (no fusion dependency)
+    // 4️⃣ Rank results
     const ranked = vectorResults.sort((a, b) => {
       const scoreA = (a.similarity || 0) + (a.lexicalScore || 0);
       const scoreB = (b.similarity || 0) + (b.lexicalScore || 0);
