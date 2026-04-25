@@ -3,17 +3,30 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic"; // 🔥 CRITICAL
 
-// OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+// ✅ Lazy OpenAI client (runtime only)
+function getOpenAI() {
+  const apiKey = process.env.OPENAI_API_KEY;
 
-// Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+  if (!apiKey) {
+    throw new Error("Missing OPENAI_API_KEY");
+  }
+
+  return new OpenAI({ apiKey });
+}
+
+// ✅ Lazy Supabase client (runtime only)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(url, key);
+}
 
 // Simple chunker for safety
 function chunkText(text: string, size = 800): string[] {
@@ -26,6 +39,10 @@ function chunkText(text: string, size = 800): string[] {
 
 export async function POST(req: Request) {
   try {
+    // ✅ Initialize at runtime ONLY
+    const openai = getOpenAI();
+    const supabase = getSupabase();
+
     const { text, file_id } = await req.json();
 
     if (!text || !file_id) {
@@ -86,4 +103,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
