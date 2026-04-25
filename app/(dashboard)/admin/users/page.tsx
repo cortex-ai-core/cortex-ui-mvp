@@ -1,11 +1,10 @@
 "use client";
 
-export const dynamic = "force-dynamic"; // 🔥 CRITICAL FIX
+export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import styles from "../../../ui.module.css";
 import { requireAuth } from "@/lib/auth/requireAuth";
-import { hasPermission } from "@/lib/auth/hasPermission";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -18,7 +17,6 @@ export default function UserAdminPage() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Available roles
   const ROLE_OPTIONS = [
     "super_admin",
     "admin",
@@ -27,29 +25,19 @@ export default function UserAdminPage() {
     "client",
   ];
 
-  // ============================================================
-  // AUTH + RBAC PROTECTION
-  // ============================================================
   useEffect(() => {
     async function load() {
       const authUser = await requireAuth();
       setUser(authUser);
 
-      // RBAC: Only super_admin can view this page
       const role = (authUser as any)?.user_metadata?.role;
       if (role !== "super_admin") {
         router.push("/chat");
         return;
       }
 
-      // Fetch users directly from Supabase Auth schema
-      const { data: userList, error } = await supabase.auth.admin.listUsers();
-
-      if (error) {
-        console.error("User fetch error:", error);
-      } else {
-        setUsers(userList.users || []);
-      }
+      // 🔥 TEMP FIX: REMOVE ADMIN CALL (causes crash)
+      setUsers([]);
 
       setLoading(false);
     }
@@ -57,36 +45,15 @@ export default function UserAdminPage() {
     load();
   }, []);
 
+  // 🔥 TEMP DISABLE UPDATE (also uses admin API)
   async function updateRole(userId: string, newRole: string) {
-    try {
-      setUpdatingId(userId);
-
-      const { error } = await supabase.auth.admin.updateUserById(userId, {
-        user_metadata: { role: newRole },
-      });
-
-      if (error) {
-        console.error("Role update error:", error);
-      }
-
-      const { data: refreshed, error: refreshErr } =
-        await supabase.auth.admin.listUsers();
-
-      if (!refreshErr) {
-        setUsers(refreshed.users || []);
-      }
-    } finally {
-      setUpdatingId(null);
-    }
+    console.warn("updateRole disabled in client (requires server API)");
   }
 
   if (loading) {
     return <div className={styles.loadingContainer}>Loading users…</div>;
   }
 
-  // ============================================================
-  // UI RENDER
-  // ============================================================
   return (
     <div className={styles.page}>
       <h1 className={styles.pageTitle}>User Management</h1>
@@ -115,7 +82,8 @@ export default function UserAdminPage() {
             )}
 
             {users.map((u) => {
-              const currentRole = (u as any)?.user_metadata?.role ?? "client";
+              const currentRole =
+                (u as any)?.user_metadata?.role ?? "client";
 
               return (
                 <tr key={u.id} className={styles.tableRow}>
@@ -124,8 +92,10 @@ export default function UserAdminPage() {
                   <td>
                     <select
                       value={currentRole}
-                      onChange={(e) => updateRole(u.id, e.target.value)}
-                      disabled={updatingId === u.id}
+                      onChange={(e) =>
+                        updateRole(u.id, e.target.value)
+                      }
+                      disabled={true} // 🔥 disable for now
                     >
                       {ROLE_OPTIONS.map((role) => (
                         <option key={role} value={role}>
@@ -135,14 +105,12 @@ export default function UserAdminPage() {
                     </select>
                   </td>
 
-                  <td>{new Date((u as any).created_at).toLocaleString()}</td>
+                  <td>
+                    {new Date((u as any).created_at).toLocaleString()}
+                  </td>
 
                   <td>
-                    {updatingId === u.id ? (
-                      <span>Saving…</span>
-                    ) : (
-                      <span>Updated</span>
-                    )}
+                    <span>Disabled</span>
                   </td>
                 </tr>
               );
