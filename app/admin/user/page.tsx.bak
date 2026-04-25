@@ -20,12 +20,13 @@ export default function UserAdminPage() {
   // ============================================================
   useEffect(() => {
     async function load() {
-      const authUser = await requireAuth();
-      setUser(authUser);
+     
+const authUser = (await requireAuth()) as any;      
+setUser(authUser);
 
       // RBAC: Only super_admin can view this page
-      const role = authUser?.user_metadata?.role;
-      if (role !== "super_admin") {
+const role = (authUser as any)?.user_metadata?.role;      
+if (role !== "super_admin") {
         router.push("/chat");
         return;
       }
@@ -106,4 +107,3 @@ export default function UserAdminPage() {
     </div>
   );
 }
-

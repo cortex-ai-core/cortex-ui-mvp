@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic"; // 🔥 CRITICAL FIX
+
 import { useEffect, useState } from "react";
 import styles from "../../ui.module.css";
 import { requireAuth } from "@/lib/auth/requireAuth";
@@ -20,13 +22,12 @@ export default function UserAdminPage() {
   // ============================================================
   useEffect(() => {
     async function load() {
-     
-const authUser = (await requireAuth()) as any;      
-setUser(authUser);
+      const authUser = (await requireAuth()) as any;
+      setUser(authUser);
 
       // RBAC: Only super_admin can view this page
-const role = (authUser as any)?.user_metadata?.role;      
-if (role !== "super_admin") {
+      const role = (authUser as any)?.user_metadata?.role;
+      if (role !== "super_admin") {
         router.push("/chat");
         return;
       }
@@ -62,7 +63,6 @@ if (role !== "super_admin") {
   // ============================================================
   return (
     <div className={styles.page}>
-
       <h1 className={styles.pageTitle}>User Management</h1>
       <p className={styles.pageSubtitle}>
         View all users connected to your Cortéx instance.
@@ -103,7 +103,6 @@ if (role !== "super_admin") {
           </tbody>
         </table>
       </div>
-
     </div>
   );
 }
