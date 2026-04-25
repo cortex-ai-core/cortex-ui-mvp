@@ -3,11 +3,19 @@ import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic"; // 🔥 CRITICAL: prevents build-time execution
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// ✅ Lazy Supabase client (runtime only)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(url, key);
+}
 
 // --- Chunking configuration ---
 const CHUNK_SIZE = 800;     // characters
@@ -36,6 +44,9 @@ function createChunks(text: string): { id: string; content: string }[] {
 
 export async function POST(req: Request) {
   try {
+    // ✅ Initialize Supabase at runtime ONLY
+    const supabase = getSupabase();
+
     const { document_id, text } = await req.json();
 
     if (!document_id || !text) {
@@ -86,4 +97,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
