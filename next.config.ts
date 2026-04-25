@@ -2,9 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   experimental: {
-    // Disable LightningCSS optimization to prevent `.node` module failures
     optimizeCss: false,
   },
+
+  // 🔥 FORCE server runtime (disables static export behavior)
+  output: "standalone",
 };
 
 export default nextConfig;
