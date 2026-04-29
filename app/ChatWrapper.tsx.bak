@@ -11,21 +11,46 @@ export default function ChatWrapper() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    let attempts = 0;
 
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
+    const interval = setInterval(() => {
+      const token = localStorage.getItem("token");
 
-    const parsedUser = getUserFromToken();
+      // ⏳ wait for token to exist
+      if (!token) {
+        attempts++;
 
-    if (!parsedUser) {
-      router.replace("/login");
-      return;
-    }
+        // after ~2 seconds → redirect
+        if (attempts > 10) {
+          console.error("❌ No token after wait — redirecting");
+          clearInterval(interval);
+          router.replace("/login");
+        }
 
-    setUser(parsedUser);
+        return;
+      }
+
+      const parsedUser = getUserFromToken();
+
+      console.log("DECODED USER:", parsedUser);
+
+      if (
+        !parsedUser ||
+        !parsedUser.userId ||
+        !parsedUser.role ||
+        !parsedUser.namespace
+      ) {
+        console.error("❌ Invalid token payload — redirecting");
+        clearInterval(interval);
+        router.replace("/login");
+        return;
+      }
+
+      setUser(parsedUser);
+      clearInterval(interval);
+    }, 150);
+
+    return () => clearInterval(interval);
   }, [router]);
 
   if (!user) return null;

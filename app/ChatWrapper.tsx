@@ -11,10 +11,13 @@ export default function ChatWrapper() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
+    // 🛡️ HARD GUARD — prevent any SSR execution issues
+    if (typeof window === "undefined") return;
+
     let attempts = 0;
 
     const interval = setInterval(() => {
-      const token = localStorage.getItem("token");
+      const token = window.localStorage.getItem("token");
 
       // ⏳ wait for token to exist
       if (!token) {
