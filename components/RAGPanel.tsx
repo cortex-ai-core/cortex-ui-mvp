@@ -22,7 +22,11 @@ export default function RAGPanel() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ query }),
+          // 🔥 ONLY CHANGE: add namespace (safe, optional fallback)
+          body: JSON.stringify({
+            query,
+            namespace: process.env.NEXT_PUBLIC_NAMESPACE || "core",
+          }),
         }
       );
 
