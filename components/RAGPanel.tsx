@@ -15,10 +15,16 @@ export default function RAGPanel() {
     setSelected(null);
 
     try {
-      const res = await fetch("/api/rag/search", {
-        method: "POST",
-        body: JSON.stringify({ query }),
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/rag/search`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query }),
+        }
+      );
 
       const data = await res.json();
 
@@ -101,4 +107,3 @@ export default function RAGPanel() {
     </div>
   );
 }
-

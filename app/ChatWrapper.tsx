@@ -4,14 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import ChatClient from "./ChatClient";
 import { Suspense } from "react";
-import { getUserFromToken } from "@/lib/auth/getUserFromToken";
 
 export default function ChatWrapper() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    // 🛡️ HARD GUARD — prevent any SSR execution issues
     if (typeof window === "undefined") return;
 
     let attempts = 0;
@@ -19,13 +17,11 @@ export default function ChatWrapper() {
     const interval = setInterval(() => {
       const token = window.localStorage.getItem("token");
 
-      // ⏳ wait for token to exist
       if (!token) {
         attempts++;
 
-        // after ~2 seconds → redirect
         if (attempts > 10) {
-          console.error("❌ No token after wait — redirecting");
+          console.error("❌ No token — redirecting");
           clearInterval(interval);
           router.replace("/login");
         }
@@ -33,9 +29,15 @@ export default function ChatWrapper() {
         return;
       }
 
-      const parsedUser = getUserFromToken();
+      // 🔥 SAFE INLINE TOKEN PARSE (NO IMPORT)
+      let parsedUser: any = null;
 
-      console.log("DECODED USER:", parsedUser);
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        parsedUser = payload;
+      } catch (err) {
+        console.error("❌ Token decode failed:", err);
+      }
 
       if (
         !parsedUser ||
@@ -43,7 +45,7 @@ export default function ChatWrapper() {
         !parsedUser.role ||
         !parsedUser.namespace
       ) {
-        console.error("❌ Invalid token payload — redirecting");
+        console.error("❌ Invalid token — redirecting");
         clearInterval(interval);
         router.replace("/login");
         return;
