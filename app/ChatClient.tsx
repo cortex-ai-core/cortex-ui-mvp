@@ -39,6 +39,9 @@ export default function ChatClient({ user }: { user: any }) {
   const [documents, setDocuments] = useState<any[]>([]);
   const [isThinking, setIsThinking] = useState(false);
 
+  // 🔥 NEW — explicit Private Mode control
+  const [privateMode, setPrivateMode] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const sessionInitialized = useRef(false);
 
@@ -125,7 +128,7 @@ export default function ChatClient({ user }: { user: any }) {
     const newFiles: { name: string; content: string }[] = [];
 
     for (const file of files) {
-      const f = file as File; // ✅ FIXED
+      const f = file as File;
 
       let extractedText = "";
 
@@ -172,8 +175,15 @@ export default function ChatClient({ user }: { user: any }) {
         () => {},
         {
           namespace: NAMESPACE,
-          mode: ephemeralFiles.length ? "ephemeral" : "persistent",
-          ephemeralFiles,
+
+          // 🔒 v1.3 — controlled by checkbox now
+          privateMode: privateMode,
+
+          // only send ephemeral context IF private mode is ON
+          ephemeralContext: privateMode
+            ? ephemeralFiles.map(f => f.content).join("\n\n")
+            : "",
+
           toneMode,
           identity: {
             userId,
@@ -192,7 +202,9 @@ export default function ChatClient({ user }: { user: any }) {
     }
   }
 
-  const mode = ephemeralFiles.length ? "Ephemeral" : "Persistent";
+  const mode = privateMode
+    ? "🔒 Private Mode (Session Only)"
+    : "Standard Mode";
 
   return (
     <div className="flex h-screen w-full bg-[#f7f7f8] overflow-hidden">
@@ -210,7 +222,9 @@ export default function ChatClient({ user }: { user: any }) {
 
         {hasPermission(role, "upload_ephemeral") && (
           <div className={styles.section}>
-            <div className={styles.ephemeralLabel}>Ephemeral Upload</div>
+            <div className={styles.ephemeralLabel}>
+              🔒 Private Upload (Session Only)
+            </div>
 
             <input
               type="file"
@@ -230,6 +244,18 @@ export default function ChatClient({ user }: { user: any }) {
             )}
           </div>
         )}
+
+        {/* 🔥 NEW — PRIVATE MODE TOGGLE */}
+        <div className={styles.section}>
+          <label style={{ fontSize: "12px", display: "flex", gap: "6px", alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={privateMode}
+              onChange={(e) => setPrivateMode(e.target.checked)}
+            />
+            🔒 Private Mode (Session Only)
+          </label>
+        </div>
 
         <div className={styles.section}>
           <h3>Documents</h3>

@@ -9,8 +9,8 @@ export async function sendChat(
   _onToken: (value: string) => void,
   config: {
     namespace: string;
-    mode: "ephemeral" | "persistent";
-    ephemeralFiles?: { name: string; content: string }[];
+    privateMode: boolean; // 🔥 NEW
+    ephemeralContext?: string; // 🔥 NEW
     toneMode: string;
     identity: {
       userId: string;
@@ -28,8 +28,8 @@ export async function sendChat(
   try {
     const {
       namespace,
-      mode,
-      ephemeralFiles = [],
+      privateMode,
+      ephemeralContext = "",
       toneMode,
       identity: identityFromClient,
     } = config;
@@ -50,22 +50,14 @@ export async function sendChat(
     const identity = mergeIdentity(selectedDivision);
 
     // ----------------------------------------------------
-    // 🆕 BUILD EPHEMERAL CONTEXT
-    // ----------------------------------------------------
-    const ephemeralContext = (ephemeralFiles || [])
-      .filter((f) => f?.content?.trim())
-      .map((f) => `--- ${f.name} ---\n${f.content.trim()}`)
-      .join("\n\n");
-
-    // ----------------------------------------------------
-    // 1️⃣ Payload
+    // 1️⃣ Payload (CLEAN — NO LEGACY FIELDS)
     // ----------------------------------------------------
     const payload = {
       sessionId,
       message,
       namespace,
-      mode,
-      ephemeralContext,
+      privateMode, // 🔥 ONLY CONTROL FLAG
+      ephemeralContext: privateMode ? ephemeralContext : "", // 🔒 STRICT
       toneMode,
       identity: {
         ...identityFromClient,
@@ -113,25 +105,13 @@ export async function sendChat(
       body: JSON.stringify(payload),
     });
 
-    // 🔥 FIX — improved error handling (timeouts + backend messages)
     if (!res.ok) {
       const raw = await res.text().catch(() => "");
-      console.error("❌ CHAT ROUTE ERROR RAW:", raw);
 
-      // Handle timeout gracefully
       if (res.status === 504) {
         const msg = "Model timeout — please retry.";
-        try {
-          onFinalText(msg);
-        } catch {}
-        return {
-          reply: msg,
-          ragUsed: false,
-          matchCount: 0,
-          results: [],
-          reasoningPath: "TIMEOUT",
-          raw,
-        };
+        onFinalText(msg);
+        return;
       }
 
       throw new Error(`Chat request failed: ${res.status}`);
@@ -142,44 +122,22 @@ export async function sendChat(
     // ----------------------------------------------------
     const data = await res.json();
 
-    // 🔥 DLP SAFE HANDLING
     if (data?.error) {
-      console.warn("🛡️ DLP / Backend Block Triggered:", data.error);
-
       const safeMessage =
         data.error ||
         "⚠️ Request blocked due to sensitive data policy.";
 
-      try {
-        onFinalText(safeMessage);
-      } catch (uiError) {
-        console.error("UI update failed:", uiError);
-      }
-
-      return {
-        reply: safeMessage,
-        ragUsed: false,
-        matchCount: 0,
-        results: [],
-        reasoningPath: "DLP_BLOCK",
-        raw: data,
-      };
+      onFinalText(safeMessage);
+      return;
     }
 
-    // ----------------------------------------------------
-    // ✅ NORMAL FLOW
-    // ----------------------------------------------------
     const reply =
       data?.message ??
       data?.finalAnswer ??
       data?.final_answer ??
       "Cortéx response unavailable.";
 
-    try {
-      onFinalText(reply);
-    } catch (uiError) {
-      console.error("UI update failed:", uiError);
-    }
+    onFinalText(reply);
 
     return {
       reply,
