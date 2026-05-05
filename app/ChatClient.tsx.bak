@@ -65,7 +65,6 @@ export default function ChatClient({ user }: { user: any }) {
     }
   }, [sessionId]);
 
-  // ✅ PATCHED (ONLY CHANGE)
   const fetchDocuments = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -88,7 +87,6 @@ export default function ChatClient({ user }: { user: any }) {
     fetchDocuments();
   }, []);
 
-  // ✅ PATCHED (ONLY CHANGE)
   const deleteDocument = async (documentId: string) => {
     try {
       const token = localStorage.getItem("token");
@@ -127,20 +125,22 @@ export default function ChatClient({ user }: { user: any }) {
     const newFiles: { name: string; content: string }[] = [];
 
     for (const file of files) {
+      const f = file as File; // ✅ FIXED
+
       let extractedText = "";
 
-      if (file.name.toLowerCase().endsWith(".docx")) {
-        const buf = await file.arrayBuffer();
+      if (f.name.toLowerCase().endsWith(".docx")) {
+        const buf = await f.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer: buf });
         extractedText = result.value;
       } else {
-        extractedText = await file.text();
+        extractedText = await f.text();
       }
 
       if (!extractedText.trim()) continue;
 
       newFiles.push({
-        name: file.name,
+        name: f.name,
         content: extractedText,
       });
     }

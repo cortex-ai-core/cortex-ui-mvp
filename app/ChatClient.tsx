@@ -39,7 +39,7 @@ export default function ChatClient({ user }: { user: any }) {
   const [documents, setDocuments] = useState<any[]>([]);
   const [isThinking, setIsThinking] = useState(false);
 
-  // 🔥 NEW — explicit Private Mode control
+  // 🔥 Private Mode toggle
   const [privateMode, setPrivateMode] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -160,6 +160,12 @@ export default function ChatClient({ user }: { user: any }) {
     const text = input.trim();
     if (!text || !sessionId) return;
 
+    // 🔥 FIX — Prevent empty private mode
+    if (privateMode && ephemeralFiles.length === 0) {
+      appendAssistantMessage("⚠ Private mode requires a document upload.");
+      return;
+    }
+
     setInput("");
     appendMessageToLocal("user", text);
     lockInput();
@@ -175,15 +181,10 @@ export default function ChatClient({ user }: { user: any }) {
         () => {},
         {
           namespace: NAMESPACE,
-
-          // 🔒 v1.3 — controlled by checkbox now
           privateMode: privateMode,
-
-          // only send ephemeral context IF private mode is ON
           ephemeralContext: privateMode
             ? ephemeralFiles.map(f => f.content).join("\n\n")
             : "",
-
           toneMode,
           identity: {
             userId,
@@ -202,8 +203,9 @@ export default function ChatClient({ user }: { user: any }) {
     }
   }
 
+  // 🔥 Improved mode display
   const mode = privateMode
-    ? "🔒 Private Mode (Session Only)"
+    ? `🔒 Private Mode (${ephemeralFiles.length} files)`
     : "Standard Mode";
 
   return (
@@ -245,7 +247,6 @@ export default function ChatClient({ user }: { user: any }) {
           </div>
         )}
 
-        {/* 🔥 NEW — PRIVATE MODE TOGGLE */}
         <div className={styles.section}>
           <label style={{ fontSize: "12px", display: "flex", gap: "6px", alignItems: "center" }}>
             <input
