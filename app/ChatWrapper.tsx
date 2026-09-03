@@ -1,9 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import ChatClient from "./ChatClient";
-import { Suspense } from "react";
+import { DialogProvider } from "@/components/Dialog";
+
+function BrandLoader() {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-surface">
+      <div className="flex flex-col items-center gap-4">
+        <Image
+          src="/brand/sollucio-logo.png"
+          alt="Sollucio Partners"
+          width={155}
+          height={93}
+          priority
+          className="h-12 w-auto opacity-80"
+        />
+        <div className="flex items-center gap-1.5">
+          <span className="dot h-2 w-2 rounded-full bg-brand-600" />
+          <span className="dot h-2 w-2 rounded-full bg-brand-600" />
+          <span className="dot h-2 w-2 rounded-full bg-brand-600" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ChatWrapper() {
   const router = useRouter();
@@ -21,7 +44,6 @@ export default function ChatWrapper() {
         attempts++;
 
         if (attempts > 10) {
-          console.error("❌ No token — redirecting");
           clearInterval(interval);
           router.replace("/login");
         }
@@ -29,14 +51,12 @@ export default function ChatWrapper() {
         return;
       }
 
-      // 🔥 SAFE INLINE TOKEN PARSE (NO IMPORT)
       let parsedUser: any = null;
 
       try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        parsedUser = payload;
+        parsedUser = JSON.parse(atob(token.split(".")[1]));
       } catch (err) {
-        console.error("❌ Token decode failed:", err);
+        console.error("Token decode failed:", err);
       }
 
       if (
@@ -45,8 +65,8 @@ export default function ChatWrapper() {
         !parsedUser.role ||
         !parsedUser.namespace
       ) {
-        console.error("❌ Invalid token — redirecting");
         clearInterval(interval);
+        window.localStorage.removeItem("token");
         router.replace("/login");
         return;
       }
@@ -58,11 +78,13 @@ export default function ChatWrapper() {
     return () => clearInterval(interval);
   }, [router]);
 
-  if (!user) return null;
+  if (!user) return <BrandLoader />;
 
   return (
-    <Suspense fallback={null}>
-      <ChatClient user={user} />
+    <Suspense fallback={<BrandLoader />}>
+      <DialogProvider>
+        <ChatClient user={user} />
+      </DialogProvider>
     </Suspense>
   );
 }

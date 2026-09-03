@@ -2,13 +2,40 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 
+import type { Citation } from "@/lib/citations";
+
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  sources?: string[];
+  citations?: Citation[];
+  mode?: "retrieval" | "document" | "private";
+  createdAt?: number;
+};
+
+export type ToneMode =
+  | "neutral"
+  | "king"
+  | "ceo"
+  | "advisory"
+  | "recruiting"
+  | "cybersecurity"
+  | "datamanagement"
+  | "ventures";
+
+const LIST_KEY = "cortex_chat_list";
+const CURRENT_KEY = "cortex_current_session";
+const TONE_KEY = "cortex_tone_mode";
+const sessionKey = (id: string) => `cortex_chat_${id}`;
+
 // =============================================================
 //  LOCAL STORAGE HELPERS
 // =============================================================
 function loadChatList(): string[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem("cortex_chat_list");
+    const raw = localStorage.getItem(LIST_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -17,22 +44,23 @@ function loadChatList(): string[] {
 
 function saveChatList(list: string[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem("cortex_chat_list", JSON.stringify(list));
+  localStorage.setItem(LIST_KEY, JSON.stringify(list));
 }
 
-function loadChatLocal(sessionId: string): any[] {
+/** Read a session's messages straight from storage (used for chat previews). */
+export function readSessionMessages(sessionId: string): ChatMessage[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(`cortex_chat_${sessionId}`);
+    const raw = localStorage.getItem(sessionKey(sessionId));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function saveChatLocal(sessionId: string, messages: any[]) {
+function saveChatLocal(sessionId: string, messages: ChatMessage[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(`cortex_chat_${sessionId}`, JSON.stringify(messages));
+  localStorage.setItem(sessionKey(sessionId), JSON.stringify(messages));
 }
 
 function createLocalSession(): string {
@@ -40,18 +68,13 @@ function createLocalSession(): string {
   const list = loadChatList();
   list.unshift(id);
   saveChatList(list);
-  localStorage.setItem(`cortex_chat_${id}`, JSON.stringify([]));
+  localStorage.setItem(sessionKey(id), JSON.stringify([]));
   return id;
 }
 
-// =============================================================
-//  DEDUPLICATION — FIXED TO PRESERVE UPDATES
-// =============================================================
-function dedupeMessages(msgs: any[]) {
-  const map = new Map();
-  for (const m of msgs) {
-    map.set(m.id, m); // last write wins
-  }
+function dedupeMessages(msgs: ChatMessage[]) {
+  const map = new Map<string, ChatMessage>();
+  for (const m of msgs) map.set(m.id, m); // last write wins
   return Array.from(map.values());
 }
 
@@ -62,48 +85,41 @@ export function useChatStore() {
   const hydrationBlock = useRef(false);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatList, setChatList] = useState<string[]>([]);
   const [isSending, setIsSending] = useState(false);
 
   const lockInput = useCallback(() => setIsSending(true), []);
   const unlockInput = useCallback(() => setIsSending(false), []);
 
-  // =============================================================
+  // -------------------------------------------------------------
   // TONE MODE
-  // =============================================================
-  const [toneMode, setToneMode] = useState<
-    | "neutral"
-    | "king"
-    | "ceo"
-    | "advisory"
-    | "recruiting"
-    | "cybersecurity"
-    | "datamanagement"
-    | "ventures"
-  >(() => {
+  // -------------------------------------------------------------
+  const [toneMode, setToneMode] = useState<ToneMode>(() => {
     if (typeof window === "undefined") return "neutral";
-    return (localStorage.getItem("cortex_tone_mode") as any) || "neutral";
+    return (localStorage.getItem(TONE_KEY) as ToneMode) || "neutral";
   });
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem("cortex_tone_mode", toneMode);
+      localStorage.setItem(TONE_KEY, toneMode);
     }
   }, [toneMode]);
 
-  // =============================================================
+  // -------------------------------------------------------------
   // INITIALIZE SESSION
-  // =============================================================
+  // -------------------------------------------------------------
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (hydrationBlock.current) return;
     hydrationBlock.current = true;
 
-    const saved = localStorage.getItem("cortex_current_session");
+    const saved = localStorage.getItem(CURRENT_KEY);
 
     if (saved) {
       setSessionId(saved);
-      setMessages(loadChatLocal(saved));
+      setMessages(dedupeMessages(readSessionMessages(saved)));
+      setChatList(loadChatList());
       setIsSending(false);
       return;
     }
@@ -111,27 +127,28 @@ export function useChatStore() {
     const id = createLocalSession();
     setSessionId(id);
     setMessages([]);
+    setChatList(loadChatList());
     setIsSending(false);
-    localStorage.setItem("cortex_current_session", id);
+    localStorage.setItem(CURRENT_KEY, id);
   }, []);
 
   useEffect(() => {
     if (sessionId && typeof window !== "undefined") {
-      localStorage.setItem("cortex_current_session", sessionId);
+      localStorage.setItem(CURRENT_KEY, sessionId);
       setIsSending(false);
     }
   }, [sessionId]);
 
-  // =============================================================
+  // -------------------------------------------------------------
   // ENSURE SESSION
-  // =============================================================
+  // -------------------------------------------------------------
   const ensureSession = useCallback(() => {
     if (sessionId) return sessionId;
 
-    const saved = localStorage.getItem("cortex_current_session");
+    const saved = localStorage.getItem(CURRENT_KEY);
     if (saved) {
       setSessionId(saved);
-      setMessages(loadChatLocal(saved));
+      setMessages(dedupeMessages(readSessionMessages(saved)));
       setIsSending(false);
       return saved;
     }
@@ -139,47 +156,83 @@ export function useChatStore() {
     const id = createLocalSession();
     setSessionId(id);
     setMessages([]);
+    setChatList(loadChatList());
     setIsSending(false);
-    localStorage.setItem("cortex_current_session", id);
+    localStorage.setItem(CURRENT_KEY, id);
     return id;
   }, [sessionId]);
 
-  // =============================================================
-  // CREATE / LOAD SESSIONS
-  // =============================================================
+  // -------------------------------------------------------------
+  // CREATE / SWITCH / DELETE SESSIONS
+  // -------------------------------------------------------------
   const createNewSession = useCallback(() => {
     const id = createLocalSession();
     setSessionId(id);
     setMessages([]);
+    setChatList(loadChatList());
     setIsSending(false);
-    localStorage.setItem("cortex_current_session", id);
+    localStorage.setItem(CURRENT_KEY, id);
     return id;
   }, []);
 
   const loadSessionMessages = useCallback((id: string) => {
-    const msgs = loadChatLocal(id);
+    const msgs = readSessionMessages(id);
     setMessages(dedupeMessages(msgs));
     setIsSending(false);
     return msgs;
   }, []);
 
-  // =============================================================
-  // ACTIVE STREAM MESSAGE ID — FIXES STREAM UPDATES
-  // =============================================================
+  const switchSession = useCallback((id: string) => {
+    setSessionId(id);
+    setMessages(dedupeMessages(readSessionMessages(id)));
+    setIsSending(false);
+    localStorage.setItem(CURRENT_KEY, id);
+  }, []);
+
+  const deleteSession = useCallback(
+    (id: string) => {
+      localStorage.removeItem(sessionKey(id));
+      const remaining = loadChatList().filter((x) => x !== id);
+      saveChatList(remaining);
+      setChatList(remaining);
+
+      if (id === sessionId) {
+        const next = remaining.find(
+          (x) => readSessionMessages(x).length > 0
+        );
+        if (next) {
+          switchSession(next);
+        } else {
+          createNewSession();
+        }
+      }
+    },
+    [sessionId, switchSession, createNewSession]
+  );
+
+  const clearAllSessions = useCallback(() => {
+    for (const id of loadChatList()) {
+      localStorage.removeItem(sessionKey(id));
+    }
+    saveChatList([]);
+    createNewSession();
+  }, [createNewSession]);
+
+  // -------------------------------------------------------------
+  // MESSAGES
+  // -------------------------------------------------------------
   const activeAssistantId = useRef<string | null>(null);
 
-  // =============================================================
-  // USER MESSAGE
-  // =============================================================
   const appendMessageToLocal = useCallback(
-    (role: string, text: string) => {
+    (role: ChatMessage["role"], text: string) => {
       const sid = ensureSession();
       if (!sid) return;
 
-      const newMsg = {
+      const newMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role,
         content: text,
+        createdAt: Date.now(),
       };
 
       setMessages((prev) => {
@@ -193,26 +246,25 @@ export function useChatStore() {
     [ensureSession, lockInput]
   );
 
-  // =============================================================
-  // ASSISTANT — NON-STREAM INSERT
-  // =============================================================
   const lastTurnRef = useRef<string>("");
 
   const appendAssistantMessage = useCallback(
-    (text: string) => {
+    (text: string, extras: { citations?: Citation[]; mode?: ChatMessage["mode"] } = {}) => {
       const sid = ensureSession();
       if (!sid) return;
 
-      // Prevent only EMPTY duplicate turns; allow real content
-      if (text.trim().length === 0 && lastTurnRef.current.trim().length === 0) return;
+      if (text.trim().length === 0 && lastTurnRef.current.trim().length === 0)
+        return;
 
-      // Disable strict repeat-blocking to allow similar templates
       lastTurnRef.current = crypto.randomUUID();
 
-      const newMsg = {
+      const newMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
         content: text,
+        citations: extras.citations || [],
+        mode: extras.mode,
+        createdAt: Date.now(),
       };
 
       activeAssistantId.current = newMsg.id;
@@ -229,9 +281,6 @@ export function useChatStore() {
     [ensureSession, unlockInput]
   );
 
-  // =============================================================
-  // STREAM: START
-  // =============================================================
   const startAssistantMessage = useCallback(() => {
     const sid = ensureSession();
     const id = crypto.randomUUID();
@@ -240,7 +289,7 @@ export function useChatStore() {
     setMessages((prev) => {
       const updated = dedupeMessages([
         ...prev,
-        { id, role: "assistant", content: "" },
+        { id, role: "assistant", content: "", createdAt: Date.now() },
       ]);
       saveChatLocal(sid, updated);
       return updated;
@@ -249,9 +298,6 @@ export function useChatStore() {
     return id;
   }, [ensureSession]);
 
-  // =============================================================
-  // STREAM: UPDATE
-  // =============================================================
   const updateAssistantMessage = useCallback(
     (token: string) => {
       const sid = ensureSession();
@@ -266,7 +312,6 @@ export function useChatStore() {
             ? { ...msg, content: (msg.content || "") + token }
             : msg
         );
-
         saveChatLocal(sid, updated);
         return updated;
       });
@@ -274,32 +319,51 @@ export function useChatStore() {
     [ensureSession]
   );
 
-  // =============================================================
-  // AUTO-UNLOCK
-  // =============================================================
+  // Replace a streamed (in-progress) assistant message with its final text + citations.
+  const finalizeAssistantMessage = useCallback(
+    (id: string, text: string, extras: { citations?: Citation[]; mode?: ChatMessage["mode"] } = {}) => {
+      const sid = ensureSession();
+      if (!sid) return;
+      setMessages((prev) => {
+        const updated = prev.map((msg) =>
+          msg.id === id
+            ? { ...msg, content: text, citations: extras.citations || [], mode: extras.mode }
+            : msg
+        );
+        saveChatLocal(sid, updated);
+        return updated;
+      });
+      activeAssistantId.current = null;
+      unlockInput();
+      setIsSending(false);
+    },
+    [ensureSession, unlockInput]
+  );
+
+  // Auto-unlock once an assistant turn lands
   useEffect(() => {
     if (messages.length > 0) {
       const last = messages[messages.length - 1];
-      if (last.role === "assistant") {
-        setIsSending(false);
-      }
+      if (last.role === "assistant") setIsSending(false);
     }
   }, [messages]);
 
-  // =============================================================
-  // EXPORT STORE
-  // =============================================================
   return {
     sessionId,
     messages,
+    chatList,
 
     createNewSession,
     loadSessionMessages,
+    switchSession,
+    deleteSession,
+    clearAllSessions,
 
     appendMessageToLocal,
     appendAssistantMessage,
     startAssistantMessage,
     updateAssistantMessage,
+    finalizeAssistantMessage,
 
     isSending,
     lockInput,

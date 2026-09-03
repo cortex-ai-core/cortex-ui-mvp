@@ -1,61 +1,186 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useChatStore } from "@/lib/chatStore";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  type KeyboardEvent,
+  type ChangeEvent,
+} from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
+import {
+  useChatStore,
+  readSessionMessages,
+  type ToneMode,
+  type ChatMessage,
+} from "@/lib/chatStore";
 import MessageBubble from "@/components/MessageBubble";
 import { sendChat } from "@/lib/sendChat";
-import FileUploader from "@/components/FileUploader";
-import * as mammoth from "mammoth";
-import styles from "./ui.module.css";
+import DocumentsPanel, { type PendingUpload, type StagedFile } from "@/components/DocumentsPanel";
+import DocumentTypesSettings from "@/components/DocumentTypesSettings";
+import SourcePanel from "@/components/SourcePanel";
+import { useDialog } from "@/components/Dialog";
+import {
+  listDocuments,
+  listDocumentTypes,
+  uploadDocument,
+  isInProgress,
+  type DocumentRow,
+  type DocumentType,
+  type ParserHealth,
+} from "@/lib/documentsApi";
+import type { Citation, ChatMeta } from "@/lib/citations";
 import { hasPermission } from "@/lib/auth/hasPermission";
+import {
+  IconPlus,
+  IconSend,
+  IconTrash,
+  IconLock,
+  IconUnlock,
+  IconLogout,
+  IconX,
+  IconDoc,
+  IconFolder,
+  IconChat,
+  IconSettings,
+  IconMenu,
+  IconPaperclip,
+  IconRefresh,
+} from "@/components/icons";
 
+// -------------------------------------------------------------
+// CONSTANTS
+// -------------------------------------------------------------
+const BACKEND =
+  process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || "http://localhost:8080";
+
+const personaMap: Record<string, string> = {
+  core: "CEO",
+  advisory: "Advisory",
+  cybersecurity: "Cyber",
+  recruiting: "Recruiting",
+  datamanagement: "Data",
+  ventures: "Ventures",
+};
+
+const workspaceLabel: Record<string, string> = {
+  core: "Core",
+  hawaii: "Hawaii",
+  advisory: "Advisory",
+  cybersecurity: "Cybersecurity",
+  recruiting: "Recruiting",
+  datamanagement: "Data Management",
+  ventures: "Ventures",
+};
+
+const roleLabel: Record<string, string> = {
+  super_admin: "Super admin",
+  admin: "Admin",
+  operator: "Operator",
+  viewer: "Viewer",
+  client: "Client",
+};
+
+const TONE_OPTIONS: { value: ToneMode; label: string }[] = [
+  { value: "neutral", label: "Neutral" },
+  { value: "ceo", label: "CEO" },
+  { value: "king", label: "King" },
+  { value: "advisory", label: "Advisory" },
+  { value: "recruiting", label: "Recruiting" },
+  { value: "cybersecurity", label: "Cybersecurity" },
+  { value: "datamanagement", label: "Data management" },
+  { value: "ventures", label: "Ventures" },
+];
+
+const SUGGESTIONS = [
+  "Summarize the key themes across the uploaded documents",
+  "What action items or next steps are mentioned in the materials?",
+  "Draft a one-page executive brief from the current knowledge base",
+  "Compare the candidates whose resumes are on file",
+];
+
+const ACCEPTED = ".txt,.md,.docx,.csv,.json";
+
+type View = "chat" | "documents" | "settings";
+type EphemeralFile = { name: string; content: string };
+
+// -------------------------------------------------------------
+// COMPONENT
+// -------------------------------------------------------------
 export default function ChatClient({ user }: { user: any }) {
-  if (!user) console.warn("⚠ ChatClient mounted with no user");
+  const router = useRouter();
+  const dialog = useDialog();
 
-  const userId = user?.userId;
-  const role = user?.role;
-  const NAMESPACE = user?.namespace;
+  const userId: string = user?.userId ?? "";
+  const role: string = user?.role ?? "";
+  const NAMESPACE: string = user?.namespace ?? "";
 
-  const isSuperAdmin = role === "super_admin";
-  const isAdmin = role === "admin";
+  const persona = personaMap[NAMESPACE] || "General";
+  const workspace = workspaceLabel[NAMESPACE] || NAMESPACE || "Workspace";
+
+  const canUploadPersistent = hasPermission(role, "upload_persistent");
+  const canAttach = hasPermission(role, "upload_ephemeral");
+  const canDelete = hasPermission(role, "delete_documents");
 
   const {
     sessionId,
     messages,
+    chatList,
     createNewSession,
     loadSessionMessages,
+    switchSession,
+    deleteSession,
+    clearAllSessions,
     appendMessageToLocal,
     appendAssistantMessage,
+    startAssistantMessage,
+    updateAssistantMessage,
+    finalizeAssistantMessage,
     isSending,
     lockInput,
     unlockInput,
     toneMode,
+    setToneMode,
   } = useChatStore();
 
-  const [input, setInput] = useState("");
-  const [ephemeralFiles, setEphemeralFiles] = useState<
-    { name: string; content: string }[]
-  >([]);
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [isThinking, setIsThinking] = useState(false);
+  const [view, setView] = useState<View>("chat");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // 🔥 Private Mode toggle
+  const [input, setInput] = useState("");
+  const [ephemeralFiles, setEphemeralFiles] = useState<EphemeralFile[]>([]);
   const [privateMode, setPrivateMode] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Private chats live only in React state: never written to storage,
+  // never listed under Previous chats, gone on refresh.
+  const [privateMessages, setPrivateMessages] = useState<ChatMessage[]>([]);
+  const [privateSending, setPrivateSending] = useState(false);
+
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+  const [parserHealth, setParserHealth] = useState<ParserHealth | null>(null);
+  const [pending, setPending] = useState<PendingUpload[]>([]);
+
+  // Source panel: the citation being inspected + its siblings from the same answer
+  const [activeCitation, setActiveCitation] = useState<{ citation: Citation; all: Citation[] } | null>(null);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachRef = useRef<HTMLInputElement | null>(null);
   const sessionInitialized = useRef(false);
 
-  const personaMap: Record<string, string> = {
-    core: "CEO",
-    advisory: "Advisory",
-    cybersecurity: "Cyber",
-    recruiting: "Recruiting",
-    datamanagement: "Data",
-    ventures: "Ventures",
-  };
+  const visibleMessages = privateMode ? privateMessages : messages;
+  const busy = isSending || privateSending;
 
-  const persona = personaMap[NAMESPACE] || "General";
-
+  // -----------------------------------------------------------
+  // SESSION BOOTSTRAP (unchanged behaviour)
+  // -----------------------------------------------------------
   useEffect(() => {
     if (sessionInitialized.current) return;
     sessionInitialized.current = true;
@@ -66,283 +191,1094 @@ export default function ChatClient({ user }: { user: any }) {
     } else {
       loadSessionMessages(sessionId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  const fetchDocuments = async () => {
+  // -----------------------------------------------------------
+  // AUTH HELPERS
+  // -----------------------------------------------------------
+  const signOut = useCallback(() => {
     try {
-      const token = localStorage.getItem("token");
+      localStorage.removeItem("token");
+    } catch {}
+    router.replace("/login");
+  }, [router]);
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/documents`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
+  // -----------------------------------------------------------
+  // DOCUMENTS
+  // -----------------------------------------------------------
+  // silent=true refreshes without the loading indicator (used by polling)
+  const fetchDocuments = useCallback(
+    async (silent = false) => {
+      if (!silent) setDocsLoading(true);
+      try {
+        const data = await listDocuments();
+        setDocuments(data.documents || []);
+        setParserHealth(data.parser || null);
+        setDocsError(null);
+      } catch (err: any) {
+        if (err?.status === 401) {
+          signOut();
+          return;
         }
-      );
+        setDocsError("Couldn't load documents. Is the Cortéx server running?");
+      } finally {
+        if (!silent) setDocsLoading(false);
+      }
+    },
+    [signOut]
+  );
 
-      const data = await res.json();
-      setDocuments(data.documents || []);
-    } catch (err) {
-      console.error("❌ Failed to fetch documents:", err);
+  const fetchTypes = useCallback(async () => {
+    try {
+      const data = await listDocumentTypes();
+      setDocumentTypes(data.types || []);
+    } catch {
+      /* types are optional; the upload form works without them */
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDocuments();
-  }, []);
+    fetchTypes();
+  }, [fetchDocuments, fetchTypes]);
 
-  const deleteDocument = async (documentId: string) => {
-    try {
-      const token = localStorage.getItem("token");
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/documents/${documentId}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (!res.ok && res.status !== 404) {
-        throw new Error("Delete failed");
-      }
-
-      setDocuments((prev) =>
-        prev.filter((doc) => doc.document_id !== documentId)
-      );
-
-    } catch (err) {
-      console.error("❌ Delete error:", err);
-    }
-  };
-
+  // While anything is being read or learned, poll the list so the
+  // progress cards move. Stops on its own once everything settles.
+  const anyActive = documents.some(isInProgress);
   useEffect(() => {
-    setTimeout(() => {
+    if (!anyActive) return;
+    const timer = setInterval(() => fetchDocuments(true), 1500);
+    return () => clearInterval(timer);
+  }, [anyActive, fetchDocuments]);
+
+  // Upload lives here, not in the panel, so navigating away mid-upload
+  // doesn't lose the in-flight cards.
+  const handleFiles = useCallback(
+    (items: StagedFile[]) => {
+      setView("documents");
+      for (const { file, meta } of items) {
+        const localId = crypto.randomUUID();
+        setPending((prev) => [
+          ...prev,
+          { id: localId, file_name: file.name, display_name: meta.display_name || null, byte_size: file.size, progress: 0 },
+        ]);
+
+        uploadDocument(file, meta, (fraction) =>
+          setPending((prev) =>
+            prev.map((u) => (u.id === localId ? { ...u, progress: fraction } : u))
+          )
+        )
+          .then(async (res) => {
+            await fetchDocuments(true);
+            if (res.duplicate) {
+              setPending((prev) =>
+                prev.map((u) =>
+                  u.id === localId
+                    ? { ...u, progress: 1, message: res.message || "Already in this workspace." }
+                    : u
+                )
+              );
+            } else {
+              setPending((prev) => prev.filter((u) => u.id !== localId));
+            }
+          })
+          .catch((err: any) => {
+            if (err?.status === 401) {
+              signOut();
+              return;
+            }
+            setPending((prev) =>
+              prev.map((u) =>
+                u.id === localId ? { ...u, error: err?.message || "Upload failed." } : u
+              )
+            );
+          });
+      }
+    },
+    [fetchDocuments, signOut]
+  );
+
+  // -----------------------------------------------------------
+  // SCROLL
+  // -----------------------------------------------------------
+  useEffect(() => {
+    const t = setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 30);
-  }, [messages]);
+    return () => clearTimeout(t);
+  }, [visibleMessages, isThinking]);
 
-  async function handleEphemeralUpload(e: any) {
-    const files = Array.from(e.target.files || []);
+  // -----------------------------------------------------------
+  // COMPOSER
+  // -----------------------------------------------------------
+  const resizeComposer = useCallback(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, []);
+
+  useEffect(() => {
+    resizeComposer();
+  }, [input, resizeComposer]);
+
+  const focusComposer = () => {
+    setView("chat");
+    setSidebarOpen(false);
+    setTimeout(() => composerRef.current?.focus(), 0);
+  };
+
+  async function handleAttach(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []) as File[];
+    if (attachRef.current) attachRef.current.value = "";
     if (!files.length) return;
 
-    const newFiles: { name: string; content: string }[] = [];
-
-    for (const file of files) {
-      const f = file as File;
-
-      let extractedText = "";
-
-      if (f.name.toLowerCase().endsWith(".docx")) {
-        const buf = await f.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer: buf });
-        extractedText = result.value;
-      } else {
-        extractedText = await f.text();
-      }
-
-      if (!extractedText.trim()) continue;
-
-      newFiles.push({
-        name: f.name,
-        content: extractedText,
-      });
-    }
-
-    if (!role || !hasPermission(role, "upload_ephemeral")) {
-      alert("No permission");
+    if (!canAttach) {
+      setNotice("Your role can't attach files.");
       return;
     }
 
-    setEphemeralFiles((prev) => [...prev, ...newFiles]);
+    const added: EphemeralFile[] = [];
+    const skipped: string[] = [];
+
+    for (const f of files) {
+      let text = "";
+      try {
+        if (f.name.toLowerCase().endsWith(".docx")) {
+          const mammoth = await import("mammoth");
+          const buf = await f.arrayBuffer();
+          text = (await mammoth.extractRawText({ arrayBuffer: buf })).value;
+        } else {
+          text = await f.text();
+        }
+      } catch {
+        skipped.push(f.name);
+        continue;
+      }
+
+      if (!text.trim()) {
+        skipped.push(f.name);
+        continue;
+      }
+
+      added.push({ name: f.name, content: text });
+    }
+
+    if (added.length) {
+      setEphemeralFiles((prev) => {
+        const names = new Set(prev.map((p) => p.name));
+        return [...prev, ...added.filter((a) => !names.has(a.name))];
+      });
+    }
+
+    setNotice(
+      skipped.length
+        ? `Couldn't read: ${skipped.join(", ")}`
+        : null
+    );
+  }
+
+  function removeAttachment(name: string) {
+    setEphemeralFiles((prev) => prev.filter((f) => f.name !== name));
+  }
+
+  // -----------------------------------------------------------
+  // PRIVATE MODE
+  // -----------------------------------------------------------
+  async function leavePrivateMode(): Promise<boolean> {
+    if (privateMessages.length > 0) {
+      const ok = await dialog.confirm({
+        title: "Leave private mode?",
+        message: "This private chat isn't saved anywhere and will be discarded.",
+        confirmLabel: "Leave and discard",
+        danger: true,
+      });
+      if (!ok) return false;
+    }
+    setPrivateMessages([]);
+    setEphemeralFiles([]);
+    setPrivateMode(false);
+    setNotice(null);
+    return true;
+  }
+
+  function togglePrivateMode() {
+    if (privateMode) {
+      leavePrivateMode();
+      return;
+    }
+    setPrivateMessages([]);
+    setPrivateMode(true);
+    setNotice(null);
+    setView("chat");
+  }
+
+  async function sendPrivate(text: string) {
+    const pushPrivate = (role: ChatMessage["role"], content: string) =>
+      setPrivateMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role, content, createdAt: Date.now() },
+      ]);
+
+    pushPrivate("user", text);
+    setPrivateSending(true);
+    setIsThinking(true);
+
+    // Private chats stream too, but only ever into React state.
+    let streamingId: string | null = null;
+
+    try {
+      await sendChat(
+        `private-${crypto.randomUUID()}`,
+        text,
+        (finalText: string, meta?: ChatMeta) => {
+          const body = finalText || "Cortéx returned an empty response. Try rephrasing.";
+          const final = { citations: meta?.citations || [], mode: "private" as const };
+          if (streamingId) {
+            const id = streamingId;
+            setPrivateMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: body, ...final } : m)));
+          } else {
+            setPrivateMessages((prev) => [
+              ...prev,
+              { id: crypto.randomUUID(), role: "assistant", content: body, ...final, createdAt: Date.now() },
+            ]);
+          }
+        },
+        (delta: string) => {
+          if (!streamingId) {
+            streamingId = crypto.randomUUID();
+            const id = streamingId;
+            setIsThinking(false);
+            setPrivateMessages((prev) => [...prev, { id, role: "assistant", content: delta, mode: "private", createdAt: Date.now() }]);
+            return;
+          }
+          const id = streamingId;
+          setPrivateMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)));
+        },
+        {
+          namespace: NAMESPACE,
+          privateMode: true,
+          ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
+          toneMode,
+          identity: { userId, role, namespace: NAMESPACE },
+        }
+      );
+    } catch {
+      pushPrivate(
+        "assistant",
+        "Cortéx couldn't answer that just now. Please try again in a moment."
+      );
+    } finally {
+      setPrivateSending(false);
+      setIsThinking(false);
+    }
   }
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || !sessionId) return;
+    if (!text || busy) return;
 
-    // 🔥 FIX — Prevent empty private mode
-    if (privateMode && ephemeralFiles.length === 0) {
-      appendAssistantMessage("⚠ Private mode requires a document upload.");
+    if (privateMode) {
+      if (ephemeralFiles.length === 0) {
+        setNotice(
+          "Private chats answer only from files you attach. Attach a file first."
+        );
+        return;
+      }
+      setNotice(null);
+      setInput("");
+      await sendPrivate(text);
       return;
     }
 
+    if (!sessionId) return;
+
+    setNotice(null);
     setInput("");
     appendMessageToLocal("user", text);
     lockInput();
     setIsThinking(true);
 
+    // Streaming: the assistant bubble is created on the first token and
+    // replaced with the formatted, cited answer when the stream finishes.
+    let streamingId: string | null = null;
+
     try {
       await sendChat(
         sessionId,
         text,
-        (finalText: string) => {
-          appendAssistantMessage(finalText || "⚠ Empty response");
+        (finalText: string, meta?: ChatMeta) => {
+          const body = finalText || "Cortéx returned an empty response. Try rephrasing.";
+          if (streamingId) {
+            finalizeAssistantMessage(streamingId, body, { citations: meta?.citations || [], mode: meta?.mode });
+          } else {
+            appendAssistantMessage(body, { citations: meta?.citations || [], mode: meta?.mode });
+          }
         },
-        () => {},
+        (delta: string) => {
+          if (!streamingId) {
+            streamingId = startAssistantMessage();
+            setIsThinking(false);
+          }
+          updateAssistantMessage(delta);
+        },
         {
           namespace: NAMESPACE,
-          privateMode: privateMode,
-          ephemeralContext: privateMode
-            ? ephemeralFiles.map(f => f.content).join("\n\n")
-            : "",
+          privateMode,
+          ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
-          identity: {
-            userId,
-            role,
-            namespace: NAMESPACE,
-          },
+          identity: { userId, role, namespace: NAMESPACE },
         }
       );
-
-      setEphemeralFiles([]);
-    } catch (err) {
-      appendAssistantMessage("⚠️ Error");
+    } catch {
+      appendAssistantMessage(
+        "Cortéx couldn't answer that just now. Please try again in a moment."
+      );
     } finally {
       unlockInput();
       setIsThinking(false);
     }
   }
 
-  // 🔥 Improved mode display
-  const mode = privateMode
-    ? `🔒 Private Mode (${ephemeralFiles.length} files)`
-    : "Standard Mode";
+  function onComposerKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  async function startNewChat() {
+    if (privateMode) {
+      if (!(await leavePrivateMode())) return;
+    } else if (messages.length > 0) {
+      // Reuse the current session if it's still empty.
+      createNewSession();
+    }
+    setEphemeralFiles([]);
+    setNotice(null);
+    focusComposer();
+  }
+
+  // -----------------------------------------------------------
+  // PREVIOUS CHATS
+  // -----------------------------------------------------------
+  const previews = useMemo(() => {
+    return chatList
+      .map((id) => {
+        const msgs = id === sessionId ? messages : readSessionMessages(id);
+        const firstUser = msgs.find((m) => m.role === "user");
+        const title = firstUser?.content?.replace(/\s+/g, " ").trim() || "";
+        return {
+          id,
+          title: title ? title.slice(0, 70) : "New chat",
+          count: msgs.length,
+          when: msgs[msgs.length - 1]?.createdAt,
+        };
+      })
+      .filter((p) => p.count > 0 || p.id === sessionId);
+  }, [chatList, sessionId, messages]);
+
+  const formatWhen = (ts?: number) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    return sameDay
+      ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
+  const initial = (userId || "?").charAt(0).toUpperCase();
+
+  // -----------------------------------------------------------
+  // RENDER
+  // -----------------------------------------------------------
+  const navItem = (
+    active: boolean,
+    onClick: () => void,
+    icon: React.ReactNode,
+    label: string,
+    badge?: React.ReactNode
+  ) => (
+    <button
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium transition ${
+        active
+          ? "bg-white/12 text-white"
+          : "text-white/75 hover:bg-white/8 hover:text-white"
+      }`}
+    >
+      <span className="text-white/80">{icon}</span>
+      <span className="flex-1">{label}</span>
+      {badge}
+    </button>
+  );
 
   return (
-    <div className="flex h-screen w-full bg-[#f7f7f8] overflow-hidden">
+    <div className="flex h-screen w-full overflow-hidden bg-surface">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-brand-950/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-      <aside className={styles.sidebar}>
-        <h1 className={styles.sidebarTitle}>Cortéx</h1>
-
-        <button onClick={createNewSession} className={styles.newChatButton}>
-          + New Chat
-        </button>
-
-        {(isSuperAdmin || isAdmin) && hasPermission(role, "upload_persistent") && (
-          <FileUploader namespace={NAMESPACE} onUploadComplete={fetchDocuments} />
-        )}
-
-        {hasPermission(role, "upload_ephemeral") && (
-          <div className={styles.section}>
-            <div className={styles.ephemeralLabel}>
-              🔒 Private Upload (Session Only)
-            </div>
-
-            <input
-              type="file"
-              multiple
-              onChange={handleEphemeralUpload}
-              className={styles.ephemeralInput}
+      {/* ======================================================
+          SIDEBAR
+      ====================================================== */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-[290px] flex-col bg-brand-900 text-white transition-transform duration-200 lg:static lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {/* Brand */}
+        <div className="flex items-center justify-between px-5 pb-4 pt-5">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/brand/sollucio-logo.png"
+              alt="Sollucio Partners"
+              width={155}
+              height={93}
+              priority
+              className="logo-invert h-9 w-auto"
             />
-
-            {ephemeralFiles.length > 0 && (
-              <div className={styles.ephemeralList}>
-                {ephemeralFiles.map((f, i) => (
-                  <div key={i} className={styles.ephemeralItem}>
-                    {f.name}
-                  </div>
-                ))}
+            <div className="h-6 w-px bg-white/20" />
+            <div>
+              <div className="text-[15px] font-semibold leading-none tracking-tight">
+                Cortéx
               </div>
-            )}
+              <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-white/55">
+                {workspace}
+              </div>
+            </div>
           </div>
-        )}
-
-        <div className={styles.section}>
-          <label style={{ fontSize: "12px", display: "flex", gap: "6px", alignItems: "center" }}>
-            <input
-              type="checkbox"
-              checked={privateMode}
-              onChange={(e) => setPrivateMode(e.target.checked)}
-            />
-            🔒 Private Mode (Session Only)
-          </label>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white lg:hidden"
+            aria-label="Close menu"
+          >
+            <IconX size={16} />
+          </button>
         </div>
 
-        <div className={styles.section}>
-          <h3>Documents</h3>
+        {/* New chat */}
+        <div className="px-4">
+          <button
+            onClick={startNewChat}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-[14px] font-semibold text-brand-900 shadow-sm transition hover:bg-brand-50"
+          >
+            <IconPlus size={16} />
+            New chat
+          </button>
+        </div>
 
-          {documents.length === 0 && (
-            <div className={styles.emptyDocs}>No documents uploaded</div>
+        {/* Nav */}
+        <nav className="mt-4 space-y-0.5 px-3">
+          {navItem(
+            view === "chat",
+            () => {
+              setView("chat");
+              setSidebarOpen(false);
+            },
+            <IconChat />,
+            "Chat"
           )}
-
-          {documents.map((doc) => (
-            <div key={doc.document_id} className={styles.docItem}>
-              <strong>{doc.file_name || "Unnamed File"}</strong>
-
-              {role === "super_admin" && (
-                <button
-                  onClick={() => deleteDocument(doc.document_id)}
-                  className={styles.deleteButton}
-                  title="Remove document"
-                >
-                  Delete
-                </button>
+          {navItem(
+            view === "documents",
+            () => {
+              setView("documents");
+              setSidebarOpen(false);
+            },
+            <IconFolder />,
+            "My documents",
+            <span className="flex items-center gap-1.5">
+              {anyActive && (
+                <span
+                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-400"
+                  aria-label="Documents are being processed"
+                />
               )}
+              <span className="rounded-full bg-white/12 px-2 py-0.5 text-[11px] font-semibold text-white/80">
+                {documents.filter((d) => d.status === "ready").length}
+              </span>
+            </span>
+          )}
+          {navItem(
+            view === "settings",
+            () => {
+              setView("settings");
+              setSidebarOpen(false);
+            },
+            <IconSettings />,
+            "Settings"
+          )}
+        </nav>
+
+        {/* Previous chats */}
+        <div className="mt-5 flex min-h-0 flex-1 flex-col">
+          <div className="px-5 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
+            Previous chats
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+            {privateMode && (
+              <div className="mb-1 flex items-center gap-2.5 rounded-xl bg-white/12 px-3 py-2">
+                <IconLock size={14} className="shrink-0 text-brand-200" />
+                <div className="min-w-0">
+                  <div className="truncate text-[13.5px] text-white">
+                    Private chat
+                  </div>
+                  <div className="text-[11px] text-white/45">
+                    Not saved · cleared when you leave
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {previews.length === 0 && !privateMode && (
+              <p className="px-2 py-3 text-[13px] text-white/50">
+                Your conversations will show up here.
+              </p>
+            )}
+
+            {previews.map((p) => {
+              const active =
+                !privateMode && p.id === sessionId && view === "chat";
+              return (
+                <div
+                  key={p.id}
+                  className={`group relative mb-0.5 flex items-center rounded-xl transition ${
+                    active ? "bg-white/12" : "hover:bg-white/8"
+                  }`}
+                >
+                  <button
+                    onClick={async () => {
+                      if (privateMode && !(await leavePrivateMode())) return;
+                      if (p.id !== sessionId) switchSession(p.id);
+                      focusComposer();
+                    }}
+                    className="flex min-w-0 flex-1 flex-col px-3 py-2 text-left"
+                    title={p.title}
+                  >
+                    <span
+                      className={`truncate text-[13.5px] ${
+                        active ? "text-white" : "text-white/85"
+                      }`}
+                    >
+                      {p.title}
+                    </span>
+                    <span className="mt-0.5 text-[11px] text-white/45">
+                      {p.count === 0
+                        ? "Empty"
+                        : `${p.count} message${p.count === 1 ? "" : "s"}`}
+                      {p.when ? ` · ${formatWhen(p.when)}` : ""}
+                    </span>
+                  </button>
+
+                  {p.count > 0 && (
+                    <button
+                      onClick={async () => {
+                        const ok = await dialog.confirm({
+                          title: "Delete this chat?",
+                          message: "It will be removed from this device. Chats are never stored on the server.",
+                          confirmLabel: "Delete",
+                          danger: true,
+                        });
+                        if (ok) deleteSession(p.id);
+                      }}
+                      className="mr-1.5 rounded-lg p-1.5 text-white/40 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100 focus:opacity-100"
+                      aria-label="Delete chat"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Account */}
+        <div className="border-t border-white/10 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-400/30 text-[13px] font-bold text-white">
+              {initial}
             </div>
-          ))}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13.5px] font-medium">{userId}</div>
+              <div className="truncate text-[11.5px] text-white/50">
+                {roleLabel[role] || role} · {persona}
+              </div>
+            </div>
+            <button
+              onClick={signOut}
+              className="rounded-lg p-2 text-white/55 transition hover:bg-white/10 hover:text-white"
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <IconLogout />
+            </button>
+          </div>
         </div>
       </aside>
 
-      <main className={styles.main}>
+      {/* ======================================================
+          MAIN
+      ====================================================== */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        {/* Top bar */}
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-brand-100 bg-white px-4 sm:px-6">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-2 text-ink-muted hover:bg-brand-50 hover:text-brand-900 lg:hidden"
+            aria-label="Open menu"
+          >
+            <IconMenu />
+          </button>
 
-        <div style={{
-          padding: "8px 20px",
-          fontSize: "12px",
-          color: "#777",
-          borderBottom: "1px solid #eee",
-          background: "#fff"
-        }}>
-          Mode: <strong>{mode}</strong> | {persona}
-        </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-[15px] font-semibold text-brand-900">
+              {view === "chat"
+                ? "Chat"
+                : view === "documents"
+                ? "My documents"
+                : "Settings"}
+            </h1>
+          </div>
 
-        <div className={styles.messagesContainer}>
-
-          {messages.length === 0 && (
-            <div className={styles.emptyState}>
-              <h2>Welcome to Cortéx</h2>
-              <p>Upload documents or start a conversation.</p>
-            </div>
+          {view === "chat" && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-semibold ${
+                privateMode
+                  ? "bg-brand-900 text-white"
+                  : "bg-brand-50 text-brand-900"
+              }`}
+            >
+              {privateMode ? <IconLock size={13} /> : <IconUnlock size={13} />}
+              {privateMode ? "Private chat · not saved" : "Shared knowledge base"}
+            </span>
           )}
+        </header>
 
-          {messages.map((m) => (
-            <div key={m.id} className={styles.messageFade}>
-              <MessageBubble
-                role={m.role}
-                content={m.content}
-                sources={m.sources || []}
+        {/* ---------------- CHAT VIEW ---------------- */}
+        {view === "chat" && (
+          <>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+                {privateMode && visibleMessages.length === 0 && (
+                  <div className="mt-6 sm:mt-12">
+                    <div className="mx-auto max-w-xl rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-900 text-white">
+                          <IconLock size={18} />
+                        </span>
+                        <div>
+                          <h2 className="text-lg font-semibold text-brand-900">
+                            Private chat
+                          </h2>
+                          <p className="text-[13px] text-ink-muted">
+                            Nothing in this conversation is saved.
+                          </p>
+                        </div>
+                      </div>
+
+                      <ul className="mt-4 space-y-2 text-[13.5px] text-ink">
+                        {[
+                          "Messages aren't added to Previous chats or kept in this browser.",
+                          "Nothing is stored on the server or used as memory for future answers.",
+                          "Attached files are used for this chat only and are never added to the shared knowledge base.",
+                          "The shared knowledge base isn't consulted. Answers come only from what you attach.",
+                          "Leaving private mode, starting a new chat, or refreshing clears everything here.",
+                        ].map((t) => (
+                          <li key={t} className="flex gap-2.5">
+                            <span className="mt-[8px] h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                            <span>{t}</span>
+                          </li>
+                        ))}
+                      </ul>
+
+                      <p className="mt-4 text-[13px] font-medium text-brand-900">
+                        {ephemeralFiles.length > 0
+                          ? `${ephemeralFiles.length} file${ephemeralFiles.length === 1 ? "" : "s"} attached. Ask your question below.`
+                          : "Attach a file below to get started."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {privateMode && visibleMessages.length > 0 && (
+                  <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-brand-100 bg-white px-4 py-2.5 text-[12.5px] text-ink-muted shadow-sm">
+                    <IconLock size={13} className="shrink-0 text-brand-700" />
+                    <span>
+                      <span className="font-semibold text-brand-900">
+                        Private chat.
+                      </span>{" "}
+                      Not saved, not remembered. Cleared when you leave private
+                      mode or refresh.
+                    </span>
+                  </div>
+                )}
+
+                {!privateMode && messages.length === 0 && (
+                  <div className="mt-8 flex flex-col items-center text-center sm:mt-16">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-900 text-xl font-bold text-white shadow-card">
+                      C
+                    </div>
+                    <h2 className="mt-5 text-2xl font-semibold tracking-tight text-brand-900">
+                      How can Cortéx help?
+                    </h2>
+                    <p className="mt-2 max-w-md text-[14.5px] text-ink-muted">
+                      Ask anything about the {workspace} workspace. Answers are
+                      grounded in the documents your team has shared.
+                    </p>
+
+                    <div className="mt-8 grid w-full gap-2 sm:grid-cols-2">
+                      {SUGGESTIONS.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            setInput(s);
+                            focusComposer();
+                          }}
+                          className="rounded-xl border border-brand-100 bg-white px-4 py-3 text-left text-[13.5px] text-ink transition hover:border-brand-500 hover:bg-brand-50/60"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-5">
+                  {visibleMessages.map((m) => (
+                    <MessageBubble
+                      key={m.id}
+                      role={m.role}
+                      content={m.content}
+                      sources={m.sources || []}
+                      citations={m.citations || []}
+                      onCite={(c) => setActiveCitation({ citation: c, all: m.citations || [] })}
+                    />
+                  ))}
+
+                  {isThinking && (
+                    <div className="flex items-center gap-3">
+                      <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-[11px] font-bold text-white sm:flex">
+                        C
+                      </div>
+                      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-brand-100 bg-white px-4 py-3.5 shadow-card">
+                        <span className="dot h-2 w-2 rounded-full bg-brand-600" />
+                        <span className="dot h-2 w-2 rounded-full bg-brand-600" />
+                        <span className="dot h-2 w-2 rounded-full bg-brand-600" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div ref={bottomRef} />
+              </div>
+            </div>
+
+            {/* Composer */}
+            <div className="shrink-0 border-t border-brand-100 bg-white px-4 pb-4 pt-3 sm:px-6">
+              <div className="mx-auto max-w-3xl">
+                {notice && (
+                  <div
+                    role="status"
+                    className="mb-2 flex items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900"
+                  >
+                    <span>{notice}</span>
+                    <button
+                      onClick={() => setNotice(null)}
+                      className="rounded p-0.5 text-amber-700 hover:bg-amber-100"
+                      aria-label="Dismiss"
+                    >
+                      <IconX size={13} />
+                    </button>
+                  </div>
+                )}
+
+                <div
+                  className={`rounded-2xl border bg-white shadow-card transition focus-within:ring-4 ${
+                    privateMode
+                      ? "border-brand-700 focus-within:ring-brand-700/15"
+                      : "border-brand-100 focus-within:border-brand-500 focus-within:ring-brand-600/12"
+                  }`}
+                >
+                  {ephemeralFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2 px-3 pt-3">
+                      {ephemeralFiles.map((f) => (
+                        <span
+                          key={f.name}
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-brand-50 py-1 pl-2.5 pr-1.5 text-[12.5px] font-medium text-brand-900"
+                        >
+                          <IconDoc size={13} />
+                          <span className="truncate">{f.name}</span>
+                          <button
+                            onClick={() => removeAttachment(f.name)}
+                            className="rounded p-0.5 text-brand-700 hover:bg-brand-100"
+                            aria-label={`Remove ${f.name}`}
+                          >
+                            <IconX size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <textarea
+                    ref={composerRef}
+                    rows={1}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={onComposerKeyDown}
+                    placeholder={
+                      privateMode
+                        ? "Ask privately about your attached files…"
+                        : "Ask Cortéx…"
+                    }
+                    disabled={busy}
+                    className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/60 disabled:opacity-60"
+                  />
+
+                  <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                    <div className="flex items-center gap-1">
+                      {canAttach && (
+                        <>
+                          <input
+                            ref={attachRef}
+                            type="file"
+                            multiple
+                            accept={ACCEPTED}
+                            onChange={handleAttach}
+                            className="sr-only"
+                            id="attach-files"
+                          />
+                          <label
+                            htmlFor="attach-files"
+                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-ink-muted transition hover:bg-brand-50 hover:text-brand-900"
+                            title="Attach files for this conversation only. They aren't saved to the knowledge base."
+                          >
+                            <IconPaperclip size={15} />
+                            Attach files
+                          </label>
+                        </>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={togglePrivateMode}
+                        aria-pressed={privateMode}
+                        title={
+                          privateMode
+                            ? "Private mode is on. This chat isn't saved anywhere and answers only from your attached files."
+                            : "Start a private chat: nothing is saved, nothing is remembered, and the shared knowledge base isn't used."
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition ${
+                          privateMode
+                            ? "bg-brand-900 text-white hover:bg-brand-800"
+                            : "text-ink-muted hover:bg-brand-50 hover:text-brand-900"
+                        }`}
+                      >
+                        {privateMode ? (
+                          <IconLock size={14} />
+                        ) : (
+                          <IconUnlock size={14} />
+                        )}
+                        Private mode
+                        <span
+                          className={`ml-0.5 inline-block h-3.5 w-6 rounded-full p-0.5 transition ${
+                            privateMode ? "bg-brand-400" : "bg-brand-200"
+                          }`}
+                          aria-hidden
+                        >
+                          <span
+                            className={`block h-2.5 w-2.5 rounded-full bg-white transition-transform ${
+                              privateMode ? "translate-x-2.5" : "translate-x-0"
+                            }`}
+                          />
+                        </span>
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={handleSend}
+                      disabled={busy || !input.trim()}
+                      aria-label="Send"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-900 text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-brand-200"
+                    >
+                      <IconSend size={17} />
+                    </button>
+                  </div>
+                </div>
+
+                <p className="mt-2 text-center text-[11.5px] text-ink-muted/80">
+                  Enter to send · Shift+Enter for a new line
+                  {privateMode
+                    ? " · Private chat: not saved, cleared when you leave"
+                    : ""}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ---------------- SOURCE PANEL (citation drawer) ---------------- */}
+        {view === "chat" && activeCitation && (
+          <>
+            <div
+              className="fixed inset-0 z-30 bg-brand-950/30 sm:hidden"
+              onClick={() => setActiveCitation(null)}
+            />
+            <div className="fixed inset-y-0 right-0 z-40 w-full max-w-[420px] shadow-[0_0_40px_rgba(0,65,61,0.18)] sm:w-[380px]">
+              <SourcePanel
+                citation={activeCitation.citation}
+                all={activeCitation.all}
+                onSelect={(c) => setActiveCitation({ citation: c, all: activeCitation.all })}
+                onClose={() => setActiveCitation(null)}
               />
             </div>
-          ))}
+          </>
+        )}
 
-          {isThinking && (
-            <div className={styles.typing}>
-              Cortéx is thinking...
-            </div>
-          )}
+        {/* ---------------- DOCUMENTS VIEW ---------------- */}
+        {view === "documents" && (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <DocumentsPanel
+              workspace={workspace}
+              documents={documents}
+              types={documentTypes}
+              parser={parserHealth}
+              pending={pending}
+              loading={docsLoading}
+              error={docsError}
+              canUpload={canUploadPersistent}
+              canDelete={canDelete}
+              onFiles={handleFiles}
+              onDismissPending={(id) =>
+                setPending((prev) => prev.filter((u) => u.id !== id))
+              }
+              onRefresh={() => fetchDocuments()}
+              onChanged={() => fetchDocuments(true)}
+            />
+          </div>
+        )}
 
-          <div ref={bottomRef} />
-        </div>
+        {/* ---------------- SETTINGS VIEW ---------------- */}
+        {view === "settings" && (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6">
+              {/* Account */}
+              <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
+                <h2 className="text-[15px] font-semibold text-brand-900">
+                  Account
+                </h2>
+                <dl className="mt-4 grid gap-4 sm:grid-cols-3">
+                  {[
+                    ["Signed in as", userId],
+                    ["Role", roleLabel[role] || role],
+                    ["Workspace", workspace],
+                  ].map(([k, v]) => (
+                    <div key={k}>
+                      <dt className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-muted">
+                        {k}
+                      </dt>
+                      <dd className="mt-1 text-[14.5px] font-medium text-ink">
+                        {v}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
 
-        <div className={styles.inputBar}>
-          <div className={styles.inputWrapper}>
-            <div className={styles.inputRow}>
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask Cortéx..."
-                className={styles.input}
+              {/* Response style */}
+              <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
+                <h2 className="text-[15px] font-semibold text-brand-900">
+                  Response style
+                </h2>
+                <p className="mt-1 text-[13.5px] text-ink-muted">
+                  Shapes the tone and framing of Cortéx&rsquo;s answers.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {TONE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setToneMode(opt.value)}
+                      aria-pressed={toneMode === opt.value}
+                      className={`rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition ${
+                        toneMode === opt.value
+                          ? "border-brand-900 bg-brand-900 text-white"
+                          : "border-brand-100 bg-white text-ink hover:border-brand-500"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {/* Document types */}
+              <DocumentTypesSettings
+                types={documentTypes}
+                canManage={canUploadPersistent}
+                onChanged={() => { fetchTypes(); fetchDocuments(true); }}
               />
 
-              <button
-                onClick={handleSend}
-                disabled={isSending}
-                className={styles.sendButton}
-              >
-                →
-              </button>
+              {/* Privacy & data */}
+              <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
+                <h2 className="text-[15px] font-semibold text-brand-900">
+                  Privacy &amp; data
+                </h2>
+                <ul className="mt-3 space-y-2 text-[13.5px] text-ink-muted">
+                  <li>
+                    Chats are kept only in this browser. They are not stored on
+                    the server.
+                  </li>
+                  <li>
+                    Files attached in a chat are used for that conversation
+                    only. Documents added under My documents are shared with the
+                    whole workspace.
+                  </li>
+                  <li>
+                    Private chats are never saved: not in this browser, not on
+                    the server, and not as memory for future answers. They
+                    answer only from files you attach, skip the shared knowledge
+                    base, and are cleared when you leave private mode or
+                    refresh.
+                  </li>
+                </ul>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <button
+                    onClick={async () => {
+                      const ok = await dialog.confirm({
+                        title: "Clear chat history on this device?",
+                        message: "Every chat saved in this browser will be deleted. This can't be undone.",
+                        confirmLabel: "Clear history",
+                        danger: true,
+                      });
+                      if (ok) {
+                        clearAllSessions();
+                        setView("chat");
+                      }
+                    }}
+                    className="rounded-lg border border-brand-100 bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                  >
+                    Clear chat history on this device
+                  </button>
+                  <button
+                    onClick={signOut}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-brand-800"
+                  >
+                    <IconLogout size={14} />
+                    Sign out
+                  </button>
+                </div>
+              </section>
             </div>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );
