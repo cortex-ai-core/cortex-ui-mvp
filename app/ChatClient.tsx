@@ -19,9 +19,16 @@ import {
 } from "@/lib/chatStore";
 import MessageBubble from "@/components/MessageBubble";
 import { sendChat } from "@/lib/sendChat";
-import DocumentsPanel, { type PendingUpload, type StagedFile } from "@/components/DocumentsPanel";
-import DocumentTypesSettings from "@/components/DocumentTypesSettings";
+import DocumentsPanel, {
+  type PendingUpload,
+  type StagedFile,
+} from "@/components/DocumentsPanel";
 import SourcePanel from "@/components/SourcePanel";
+import SettingsLanding from "@/components/settings/SettingsLanding";
+import UserSettings from "@/components/settings/UserSettings";
+import UserManagement from "@/components/settings/UserManagement";
+import OrganizationAdministration from "@/components/settings/OrganizationAdministration";
+import RoleManagement from "@/components/settings/RoleManagement";
 import { useDialog } from "@/components/Dialog";
 import {
   listDocuments,
@@ -84,17 +91,6 @@ const roleLabel: Record<string, string> = {
   client: "Client",
 };
 
-const TONE_OPTIONS: { value: ToneMode; label: string }[] = [
-  { value: "neutral", label: "Neutral" },
-  { value: "ceo", label: "CEO" },
-  { value: "king", label: "King" },
-  { value: "advisory", label: "Advisory" },
-  { value: "recruiting", label: "Recruiting" },
-  { value: "cybersecurity", label: "Cybersecurity" },
-  { value: "datamanagement", label: "Data management" },
-  { value: "ventures", label: "Ventures" },
-];
-
 const SUGGESTIONS = [
   "Summarize the key themes across the uploaded documents",
   "What action items or next steps are mentioned in the materials?",
@@ -104,8 +100,24 @@ const SUGGESTIONS = [
 
 const ACCEPTED = ".txt,.md,.docx,.csv,.json";
 
-type View = "chat" | "documents" | "settings";
+type View =
+  | "chat"
+  | "documents"
+  | "settings"
+  | "user-settings"
+  | "user-management"
+  | "organization-administration"
+  | "role-management";
 type EphemeralFile = { name: string; content: string };
+const VIEW_TITLES: Record<View, string> = {
+  chat: "Chat",
+  documents: "My documents",
+  settings: "Settings",
+  "user-settings": "User Settings",
+  "user-management": "User Management",
+  "organization-administration": "Organization Administration",
+  "role-management": "Role Management",
+};
 
 // -------------------------------------------------------------
 // COMPONENT
@@ -115,6 +127,7 @@ export default function ChatClient({ user }: { user: any }) {
   const dialog = useDialog();
 
   const userId: string = user?.userId ?? "";
+  const email: string = user?.email ?? "";
   const role: string = user?.role ?? "";
   const NAMESPACE: string = user?.namespace ?? "";
 
@@ -143,7 +156,6 @@ export default function ChatClient({ user }: { user: any }) {
     lockInput,
     unlockInput,
     toneMode,
-    setToneMode,
   } = useChatStore();
 
   const [view, setView] = useState<View>("chat");
@@ -166,7 +178,10 @@ export default function ChatClient({ user }: { user: any }) {
   const [pending, setPending] = useState<PendingUpload[]>([]);
 
   // Source panel: the citation being inspected + its siblings from the same answer
-  const [activeCitation, setActiveCitation] = useState<{ citation: Citation; all: Citation[] } | null>(null);
+  const [activeCitation, setActiveCitation] = useState<{
+    citation: Citation;
+    all: Citation[];
+  } | null>(null);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
 
@@ -226,7 +241,7 @@ export default function ChatClient({ user }: { user: any }) {
         if (!silent) setDocsLoading(false);
       }
     },
-    [signOut]
+    [signOut],
   );
 
   const fetchTypes = useCallback(async () => {
@@ -261,13 +276,21 @@ export default function ChatClient({ user }: { user: any }) {
         const localId = crypto.randomUUID();
         setPending((prev) => [
           ...prev,
-          { id: localId, file_name: file.name, display_name: meta.display_name || null, byte_size: file.size, progress: 0 },
+          {
+            id: localId,
+            file_name: file.name,
+            display_name: meta.display_name || null,
+            byte_size: file.size,
+            progress: 0,
+          },
         ]);
 
         uploadDocument(file, meta, (fraction) =>
           setPending((prev) =>
-            prev.map((u) => (u.id === localId ? { ...u, progress: fraction } : u))
-          )
+            prev.map((u) =>
+              u.id === localId ? { ...u, progress: fraction } : u,
+            ),
+          ),
         )
           .then(async (res) => {
             await fetchDocuments(true);
@@ -275,9 +298,13 @@ export default function ChatClient({ user }: { user: any }) {
               setPending((prev) =>
                 prev.map((u) =>
                   u.id === localId
-                    ? { ...u, progress: 1, message: res.message || "Already in this workspace." }
-                    : u
-                )
+                    ? {
+                        ...u,
+                        progress: 1,
+                        message: res.message || "Already in this workspace.",
+                      }
+                    : u,
+                ),
               );
             } else {
               setPending((prev) => prev.filter((u) => u.id !== localId));
@@ -290,13 +317,15 @@ export default function ChatClient({ user }: { user: any }) {
             }
             setPending((prev) =>
               prev.map((u) =>
-                u.id === localId ? { ...u, error: err?.message || "Upload failed." } : u
-              )
+                u.id === localId
+                  ? { ...u, error: err?.message || "Upload failed." }
+                  : u,
+              ),
             );
           });
       }
     },
-    [fetchDocuments, signOut]
+    [fetchDocuments, signOut],
   );
 
   // -----------------------------------------------------------
@@ -372,11 +401,7 @@ export default function ChatClient({ user }: { user: any }) {
       });
     }
 
-    setNotice(
-      skipped.length
-        ? `Couldn't read: ${skipped.join(", ")}`
-        : null
-    );
+    setNotice(skipped.length ? `Couldn't read: ${skipped.join(", ")}` : null);
   }
 
   function removeAttachment(name: string) {
@@ -390,7 +415,8 @@ export default function ChatClient({ user }: { user: any }) {
     if (privateMessages.length > 0) {
       const ok = await dialog.confirm({
         title: "Leave private mode?",
-        message: "This private chat isn't saved anywhere and will be discarded.",
+        message:
+          "This private chat isn't saved anywhere and will be discarded.",
         confirmLabel: "Leave and discard",
         danger: true,
       });
@@ -433,15 +459,29 @@ export default function ChatClient({ user }: { user: any }) {
         `private-${crypto.randomUUID()}`,
         text,
         (finalText: string, meta?: ChatMeta) => {
-          const body = finalText || "Cortéx returned an empty response. Try rephrasing.";
-          const final = { citations: meta?.citations || [], mode: "private" as const };
+          const body =
+            finalText || "Cortéx returned an empty response. Try rephrasing.";
+          const final = {
+            citations: meta?.citations || [],
+            mode: "private" as const,
+          };
           if (streamingId) {
             const id = streamingId;
-            setPrivateMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: body, ...final } : m)));
+            setPrivateMessages((prev) =>
+              prev.map((m) =>
+                m.id === id ? { ...m, content: body, ...final } : m,
+              ),
+            );
           } else {
             setPrivateMessages((prev) => [
               ...prev,
-              { id: crypto.randomUUID(), role: "assistant", content: body, ...final, createdAt: Date.now() },
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: body,
+                ...final,
+                createdAt: Date.now(),
+              },
             ]);
           }
         },
@@ -450,11 +490,24 @@ export default function ChatClient({ user }: { user: any }) {
             streamingId = crypto.randomUUID();
             const id = streamingId;
             setIsThinking(false);
-            setPrivateMessages((prev) => [...prev, { id, role: "assistant", content: delta, mode: "private", createdAt: Date.now() }]);
+            setPrivateMessages((prev) => [
+              ...prev,
+              {
+                id,
+                role: "assistant",
+                content: delta,
+                mode: "private",
+                createdAt: Date.now(),
+              },
+            ]);
             return;
           }
           const id = streamingId;
-          setPrivateMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)));
+          setPrivateMessages((prev) =>
+            prev.map((m) =>
+              m.id === id ? { ...m, content: m.content + delta } : m,
+            ),
+          );
         },
         {
           namespace: NAMESPACE,
@@ -462,12 +515,12 @@ export default function ChatClient({ user }: { user: any }) {
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
           identity: { userId, role, namespace: NAMESPACE },
-        }
+        },
       );
     } catch {
       pushPrivate(
         "assistant",
-        "Cortéx couldn't answer that just now. Please try again in a moment."
+        "Cortéx couldn't answer that just now. Please try again in a moment.",
       );
     } finally {
       setPrivateSending(false);
@@ -482,7 +535,7 @@ export default function ChatClient({ user }: { user: any }) {
     if (privateMode) {
       if (ephemeralFiles.length === 0) {
         setNotice(
-          "Private chats answer only from files you attach. Attach a file first."
+          "Private chats answer only from files you attach. Attach a file first.",
         );
         return;
       }
@@ -509,11 +562,18 @@ export default function ChatClient({ user }: { user: any }) {
         sessionId,
         text,
         (finalText: string, meta?: ChatMeta) => {
-          const body = finalText || "Cortéx returned an empty response. Try rephrasing.";
+          const body =
+            finalText || "Cortéx returned an empty response. Try rephrasing.";
           if (streamingId) {
-            finalizeAssistantMessage(streamingId, body, { citations: meta?.citations || [], mode: meta?.mode });
+            finalizeAssistantMessage(streamingId, body, {
+              citations: meta?.citations || [],
+              mode: meta?.mode,
+            });
           } else {
-            appendAssistantMessage(body, { citations: meta?.citations || [], mode: meta?.mode });
+            appendAssistantMessage(body, {
+              citations: meta?.citations || [],
+              mode: meta?.mode,
+            });
           }
         },
         (delta: string) => {
@@ -529,11 +589,11 @@ export default function ChatClient({ user }: { user: any }) {
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
           identity: { userId, role, namespace: NAMESPACE },
-        }
+        },
       );
     } catch {
       appendAssistantMessage(
-        "Cortéx couldn't answer that just now. Please try again in a moment."
+        "Cortéx couldn't answer that just now. Please try again in a moment.",
       );
     } finally {
       unlockInput();
@@ -589,7 +649,7 @@ export default function ChatClient({ user }: { user: any }) {
       : d.toLocaleDateString([], { month: "short", day: "numeric" });
   };
 
-  const initial = (userId || "?").charAt(0).toUpperCase();
+  const initial = (email || userId || "?").charAt(0).toUpperCase();
 
   // -----------------------------------------------------------
   // RENDER
@@ -599,7 +659,7 @@ export default function ChatClient({ user }: { user: any }) {
     onClick: () => void,
     icon: React.ReactNode,
     label: string,
-    badge?: React.ReactNode
+    badge?: React.ReactNode,
   ) => (
     <button
       onClick={onClick}
@@ -683,7 +743,7 @@ export default function ChatClient({ user }: { user: any }) {
               setSidebarOpen(false);
             },
             <IconChat />,
-            "Chat"
+            "Chat",
           )}
           {navItem(
             view === "documents",
@@ -703,16 +763,19 @@ export default function ChatClient({ user }: { user: any }) {
               <span className="rounded-full bg-white/12 px-2 py-0.5 text-[11px] font-semibold text-white/80">
                 {documents.filter((d) => d.status === "ready").length}
               </span>
-            </span>
+            </span>,
           )}
           {navItem(
-            view === "settings",
+            view === "settings" ||
+              view.endsWith("settings") ||
+              view.includes("management") ||
+              view.includes("administration"),
             () => {
               setView("settings");
               setSidebarOpen(false);
             },
             <IconSettings />,
-            "Settings"
+            "Settings",
           )}
         </nav>
 
@@ -782,7 +845,8 @@ export default function ChatClient({ user }: { user: any }) {
                       onClick={async () => {
                         const ok = await dialog.confirm({
                           title: "Delete this chat?",
-                          message: "It will be removed from this device. Chats are never stored on the server.",
+                          message:
+                            "It will be removed from this device. Chats are never stored on the server.",
                           confirmLabel: "Delete",
                           danger: true,
                         });
@@ -807,7 +871,9 @@ export default function ChatClient({ user }: { user: any }) {
               {initial}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13.5px] font-medium">{userId}</div>
+              <div className="truncate text-[13.5px] font-medium">
+                {email || userId}
+              </div>
               <div className="truncate text-[11.5px] text-white/50">
                 {roleLabel[role] || role} · {persona}
               </div>
@@ -840,11 +906,7 @@ export default function ChatClient({ user }: { user: any }) {
 
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[15px] font-semibold text-brand-900">
-              {view === "chat"
-                ? "Chat"
-                : view === "documents"
-                ? "My documents"
-                : "Settings"}
+              {VIEW_TITLES[view]}
             </h1>
           </div>
 
@@ -857,7 +919,9 @@ export default function ChatClient({ user }: { user: any }) {
               }`}
             >
               {privateMode ? <IconLock size={13} /> : <IconUnlock size={13} />}
-              {privateMode ? "Private chat · not saved" : "Shared knowledge base"}
+              {privateMode
+                ? "Private chat · not saved"
+                : "Shared knowledge base"}
             </span>
           )}
         </header>
@@ -959,7 +1023,12 @@ export default function ChatClient({ user }: { user: any }) {
                       content={m.content}
                       sources={m.sources || []}
                       citations={m.citations || []}
-                      onCite={(c) => setActiveCitation({ citation: c, all: m.citations || [] })}
+                      onCite={(c) =>
+                        setActiveCitation({
+                          citation: c,
+                          all: m.citations || [],
+                        })
+                      }
                     />
                   ))}
 
@@ -1136,7 +1205,9 @@ export default function ChatClient({ user }: { user: any }) {
               <SourcePanel
                 citation={activeCitation.citation}
                 all={activeCitation.all}
-                onSelect={(c) => setActiveCitation({ citation: c, all: activeCitation.all })}
+                onSelect={(c) =>
+                  setActiveCitation({ citation: c, all: activeCitation.all })
+                }
                 onClose={() => setActiveCitation(null)}
               />
             </div>
@@ -1167,117 +1238,59 @@ export default function ChatClient({ user }: { user: any }) {
         )}
 
         {/* ---------------- SETTINGS VIEW ---------------- */}
-        {view === "settings" && (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6">
-              {/* Account */}
-              <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
-                <h2 className="text-[15px] font-semibold text-brand-900">
-                  Account
-                </h2>
-                <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-                  {[
-                    ["Signed in as", userId],
-                    ["Role", roleLabel[role] || role],
-                    ["Workspace", workspace],
-                  ].map(([k, v]) => (
-                    <div key={k}>
-                      <dt className="text-[12px] font-medium uppercase tracking-[0.1em] text-ink-muted">
-                        {k}
-                      </dt>
-                      <dd className="mt-1 text-[14.5px] font-medium text-ink">
-                        {v}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </section>
+        {view === "settings" && <SettingsLanding onNavigate={setView} />}
 
-              {/* Response style */}
-              <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
-                <h2 className="text-[15px] font-semibold text-brand-900">
-                  Response style
-                </h2>
-                <p className="mt-1 text-[13.5px] text-ink-muted">
-                  Shapes the tone and framing of Cortéx&rsquo;s answers.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {TONE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setToneMode(opt.value)}
-                      aria-pressed={toneMode === opt.value}
-                      className={`rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition ${
-                        toneMode === opt.value
-                          ? "border-brand-900 bg-brand-900 text-white"
-                          : "border-brand-100 bg-white text-ink hover:border-brand-500"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
+        {/* ---------------- USER SETTINGS VIEW ---------------- */}
+        {view === "user-settings" && (
+          <UserSettings
+            userId={userId}
+            email={email}
+            role={roleLabel[role] || role}
+            workspace={workspace}
+            documentTypes={documentTypes}
+            canManageDocumentTypes={canUploadPersistent}
+            onDocumentTypesChanged={() => {
+              fetchTypes();
+              fetchDocuments(true);
+            }}
+            onClearHistory={async () => {
+              const ok = await dialog.confirm({
+                title: "Clear chat history on this device?",
+                message:
+                  "Every chat saved in this browser will be deleted. This can't be undone.",
+                confirmLabel: "Clear history",
+                danger: true,
+              });
+              if (ok) {
+                clearAllSessions();
+                setView("chat");
+              }
+            }}
+            onSignOut={signOut}
+            onBack={() => setView("settings")}
+          />
+        )}
 
-              {/* Document types */}
-              <DocumentTypesSettings
-                types={documentTypes}
-                canManage={canUploadPersistent}
-                onChanged={() => { fetchTypes(); fetchDocuments(true); }}
-              />
+        {/* ---------------- ADMINISTRATION VIEWS ---------------- */}
+        {view === "user-management" && (
+          <UserManagement onBack={() => setView("settings")} />
+        )}
 
-              {/* Privacy & data */}
-              <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
-                <h2 className="text-[15px] font-semibold text-brand-900">
-                  Privacy &amp; data
-                </h2>
-                <ul className="mt-3 space-y-2 text-[13.5px] text-ink-muted">
-                  <li>
-                    Chats are kept only in this browser. They are not stored on
-                    the server.
-                  </li>
-                  <li>
-                    Files attached in a chat are used for that conversation
-                    only. Documents added under My documents are shared with the
-                    whole workspace.
-                  </li>
-                  <li>
-                    Private chats are never saved: not in this browser, not on
-                    the server, and not as memory for future answers. They
-                    answer only from files you attach, skip the shared knowledge
-                    base, and are cleared when you leave private mode or
-                    refresh.
-                  </li>
-                </ul>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <button
-                    onClick={async () => {
-                      const ok = await dialog.confirm({
-                        title: "Clear chat history on this device?",
-                        message: "Every chat saved in this browser will be deleted. This can't be undone.",
-                        confirmLabel: "Clear history",
-                        danger: true,
-                      });
-                      if (ok) {
-                        clearAllSessions();
-                        setView("chat");
-                      }
-                    }}
-                    className="rounded-lg border border-brand-100 bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-                  >
-                    Clear chat history on this device
-                  </button>
-                  <button
-                    onClick={signOut}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-900 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-brand-800"
-                  >
-                    <IconLogout size={14} />
-                    Sign out
-                  </button>
-                </div>
-              </section>
-            </div>
-          </div>
+        {view === "organization-administration" && (
+          <OrganizationAdministration
+            role={role}
+            currentOrganizationId={user?.organizationId ?? ""}
+            currentNamespace={NAMESPACE}
+            onBack={() => setView("settings")}
+          />
+        )}
+
+        {view === "role-management" && (
+          <RoleManagement
+            role={role}
+            currentOrganizationId={user?.organizationId ?? ""}
+            onBack={() => setView("settings")}
+          />
         )}
       </main>
     </div>
