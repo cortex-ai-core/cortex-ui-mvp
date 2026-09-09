@@ -11,7 +11,7 @@ const BACKEND =
 export default function LoginPage() {
   const router = useRouter();
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,8 +30,8 @@ export default function LoginPage() {
     e.preventDefault();
     if (submitting) return;
 
-    if (!username.trim() || !password) {
-      setError("Enter your username and password.");
+    if (!email.trim() || !password) {
+      setError("Enter your email and password.");
       return;
     }
 
@@ -42,7 +42,7 @@ export default function LoginPage() {
       const res = await fetch(`${BACKEND}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -55,8 +55,10 @@ export default function LoginPage() {
 
       setError(
         res.status === 401
-          ? "That username or password isn't right."
-          : "Sign-in failed. Please try again."
+          ? "That email or password isn't right. Use your individual account credentials."
+          : res.status === 403 && typeof data?.error === "string"
+            ? data.error
+            : "Sign-in failed. Please try again."
       );
     } catch {
       setError(
@@ -138,30 +140,30 @@ export default function LoginPage() {
               Sign in to Cortéx
             </h2>
             <p className="mt-1.5 text-sm text-ink-muted">
-              Use the workspace credentials you were given.
+              Use the email and password for your individual account.
             </p>
 
             <form onSubmit={handleSubmit} noValidate className="mt-7 space-y-5">
               <div>
                 <label
-                  htmlFor="username"
+                  htmlFor="email"
                   className="mb-1.5 block text-[13px] font-medium text-ink"
                 >
-                  Username
+                  Email
                 </label>
                 <input
-                  id="username"
-                  name="username"
-                  type="text"
+                  id="email"
+                  name="email"
+                  type="email"
                   autoComplete="username"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
                   autoFocus
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className={inputClass}
-                  placeholder="e.g. chan"
+                  placeholder="you@company.com"
                   disabled={submitting}
                 />
               </div>
