@@ -63,7 +63,7 @@ export default function ChatWrapper() {
         !parsedUser ||
         !parsedUser.userId ||
         !parsedUser.role ||
-        !parsedUser.namespace
+        !parsedUser.namespaceId
       ) {
         clearInterval(interval);
         window.localStorage.removeItem("token");

@@ -4,11 +4,16 @@ import type { ChatMeta, Citation } from "@/lib/citations";
 let activeRequest = false;
 
 export type SendChatConfig = {
-  namespace: string;
+  /** namespace uuid from the login token; the only namespace key the server accepts */
+  namespaceId: string;
   privateMode: boolean;
   ephemeralContext?: string;
   toneMode: string;
-  identity: { userId: string; role: string; namespace: string };
+  identity: { userId: string; role: string; namespaceId: string };
+  /** server-side thread to continue; omit to start a new one */
+  conversationId?: string | null;
+  /** called as soon as the server names the thread (streaming) or with the reply (JSON) */
+  onConversation?: (conversationId: string, created: boolean) => void;
   /** stream tokens via /api/chat/stream. Off by default: the answer arrives whole. */
   stream?: boolean;
   /** called once the sources are known, before the first token */
@@ -34,6 +39,7 @@ function metaFrom(data: any): ChatMeta {
     citations: Array.isArray(data?.citations) ? (data.citations as Citation[]) : [],
     sources: Array.isArray(data?.sources) ? data.sources : [],
     mode: data?.mode,
+    conversationId: typeof data?.conversationId === "string" ? data.conversationId : undefined,
   };
 }
 
@@ -82,9 +88,9 @@ export async function sendChat(
   activeRequest = true;
 
   try {
-    const { namespace, privateMode, ephemeralContext = "", toneMode, identity: identityFromClient } = config;
+    const { namespaceId, privateMode, ephemeralContext = "", toneMode, identity: identityFromClient } = config;
 
-    if (!identityFromClient?.userId || !identityFromClient?.role || !identityFromClient?.namespace) {
+    if (!identityFromClient?.userId || !identityFromClient?.role || !identityFromClient?.namespaceId) {
       throw new Error("Invalid identity payload.");
     }
 
@@ -94,7 +100,8 @@ export async function sendChat(
     const payload = {
       sessionId,
       message,
-      namespace,
+      namespaceId,
+      conversationId: privateMode ? null : config.conversationId || null,
       privateMode,
       ephemeralContext, // attached files ride along in every mode; privateMode only disables shared retrieval
       toneMode,
@@ -128,7 +135,9 @@ export async function sendChat(
       if (res && res.ok && res.body && (res.headers.get("content-type") || "").includes("text/event-stream")) {
         let finished = false;
         for await (const { event, data } of readSse(res)) {
-          if (event === "sources") {
+          if (event === "conversation") {
+            if (typeof data?.conversationId === "string") config.onConversation?.(data.conversationId, Boolean(data?.created));
+          } else if (event === "sources") {
             config.onSources?.(data?.sources || [], data?.mode);
           } else if (event === "token") {
             if (typeof data?.text === "string") onToken(data.text);
@@ -167,6 +176,7 @@ export async function sendChat(
     }
 
     const reply = data?.message ?? data?.finalAnswer ?? data?.final_answer ?? "Cortéx response unavailable.";
+    if (typeof data?.conversationId === "string") config.onConversation?.(data.conversationId, false);
     onFinalText(reply, metaFrom(data));
   } finally {
     activeRequest = false;

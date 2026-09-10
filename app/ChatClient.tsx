@@ -14,6 +14,8 @@ import Image from "next/image";
 import {
   useChatStore,
   readSessionMessages,
+  getConversationId,
+  setConversationId,
   type ToneMode,
   type ChatMessage,
 } from "@/lib/chatStore";
@@ -129,6 +131,8 @@ export default function ChatClient({ user }: { user: any }) {
   const userId: string = user?.userId ?? "";
   const email: string = user?.email ?? "";
   const role: string = user?.role ?? "";
+  // namespaceId is the key sent to the server; namespace is the display name.
+  const NAMESPACE_ID: string = user?.namespaceId ?? "";
   const NAMESPACE: string = user?.namespace ?? "";
 
   const persona = personaMap[NAMESPACE] || "General";
@@ -142,11 +146,13 @@ export default function ChatClient({ user }: { user: any }) {
     sessionId,
     messages,
     chatList,
+    conversationMeta,
     createNewSession,
     loadSessionMessages,
     switchSession,
     deleteSession,
     clearAllSessions,
+    syncFromServer,
     appendMessageToLocal,
     appendAssistantMessage,
     startAssistantMessage,
@@ -206,6 +212,9 @@ export default function ChatClient({ user }: { user: any }) {
     } else {
       loadSessionMessages(sessionId);
     }
+    // threads saved on the server (design doc D7): list them, then the
+    // current one is refreshed by loadSessionMessages above
+    void syncFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -510,11 +519,11 @@ export default function ChatClient({ user }: { user: any }) {
           );
         },
         {
-          namespace: NAMESPACE,
+          namespaceId: NAMESPACE_ID,
           privateMode: true,
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
-          identity: { userId, role, namespace: NAMESPACE },
+          identity: { userId, role, namespaceId: NAMESPACE_ID },
         },
       );
     } catch {
@@ -584,11 +593,14 @@ export default function ChatClient({ user }: { user: any }) {
           updateAssistantMessage(delta);
         },
         {
-          namespace: NAMESPACE,
+          namespaceId: NAMESPACE_ID,
           privateMode,
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
-          identity: { userId, role, namespace: NAMESPACE },
+          identity: { userId, role, namespaceId: NAMESPACE_ID },
+          // continue the server-side thread for this session, or let the server start one
+          conversationId: getConversationId(sessionId),
+          onConversation: (id) => setConversationId(sessionId, id),
         },
       );
     } catch {
@@ -627,17 +639,26 @@ export default function ChatClient({ user }: { user: any }) {
     return chatList
       .map((id) => {
         const msgs = id === sessionId ? messages : readSessionMessages(id);
+        const meta = conversationMeta[id];
         const firstUser = msgs.find((m) => m.role === "user");
-        const title = firstUser?.content?.replace(/\s+/g, " ").trim() || "";
+        const title =
+          firstUser?.content?.replace(/\s+/g, " ").trim() || meta?.title || "";
         return {
           id,
           title: title ? title.slice(0, 70) : "New chat",
-          count: msgs.length,
-          when: msgs[msgs.length - 1]?.createdAt,
+          // a thread synced from the server but not opened here yet has no cached messages
+          count: msgs.length || meta?.count || 0,
+          when: msgs[msgs.length - 1]?.createdAt ?? meta?.when,
         };
       })
-      .filter((p) => p.count > 0 || p.id === sessionId);
-  }, [chatList, sessionId, messages]);
+      .filter((p) => p.count > 0 || p.id === sessionId)
+      // newest first; a fresh, still-empty chat is the newest thing there is
+      .sort((a, b) => {
+        const key = (p: { count: number; when?: number }) =>
+          p.count === 0 ? Number.POSITIVE_INFINITY : p.when || 0;
+        return key(b) - key(a);
+      });
+  }, [chatList, sessionId, messages, conversationMeta]);
 
   const formatWhen = (ts?: number) => {
     if (!ts) return "";
@@ -846,7 +867,7 @@ export default function ChatClient({ user }: { user: any }) {
                         const ok = await dialog.confirm({
                           title: "Delete this chat?",
                           message:
-                            "It will be removed from this device. Chats are never stored on the server.",
+                            "It will be removed from this device and from your saved conversations on the server.",
                           confirmLabel: "Delete",
                           danger: true,
                         });
@@ -1255,9 +1276,9 @@ export default function ChatClient({ user }: { user: any }) {
             }}
             onClearHistory={async () => {
               const ok = await dialog.confirm({
-                title: "Clear chat history on this device?",
+                title: "Clear chat history?",
                 message:
-                  "Every chat saved in this browser will be deleted. This can't be undone.",
+                  "Every chat saved in this browser and in your saved conversations on the server will be deleted. This can't be undone.",
                 confirmLabel: "Clear history",
                 danger: true,
               });

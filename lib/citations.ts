@@ -15,7 +15,9 @@ export type Citation = {
 export type ChatMeta = {
   citations?: Citation[];
   sources?: Omit<Citation, "snippet" | "chunk_id">[];
-  mode?: "retrieval" | "document" | "private";
+  mode?: "retrieval" | "document" | "knowledge_base" | "private" | "simple";
+  /** server-side thread id; absent in private mode or when memory is off */
+  conversationId?: string;
 };
 
 export function citationTitle(c: Pick<Citation, "display_name" | "file_name">) {
