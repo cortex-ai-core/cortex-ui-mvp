@@ -32,6 +32,7 @@ import UserManagement from "@/components/settings/UserManagement";
 import OrganizationAdministration from "@/components/settings/OrganizationAdministration";
 import RoleManagement from "@/components/settings/RoleManagement";
 import { useDialog } from "@/components/Dialog";
+import { useDensity } from "@/lib/useDensity";
 import {
   listDocuments,
   listDocumentTypes,
@@ -166,6 +167,7 @@ export default function ChatClient({ user }: { user: any }) {
 
   const [view, setView] = useState<View>("chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { density, setDensity } = useDensity();
 
   const [input, setInput] = useState("");
   const [ephemeralFiles, setEphemeralFiles] = useState<EphemeralFile[]>([]);
@@ -697,7 +699,10 @@ export default function ChatClient({ user }: { user: any }) {
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-surface">
+    <div
+      data-density={density}
+      className="flex h-screen w-full overflow-hidden bg-surface"
+    >
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -951,7 +956,7 @@ export default function ChatClient({ user }: { user: any }) {
         {view === "chat" && (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+              <div className="chat-column mx-auto max-w-3xl px-4 sm:px-6">
                 {privateMode && visibleMessages.length === 0 && (
                   <div className="mt-6 sm:mt-12">
                     <div className="mx-auto max-w-xl rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
@@ -994,7 +999,7 @@ export default function ChatClient({ user }: { user: any }) {
                 )}
 
                 {privateMode && visibleMessages.length > 0 && (
-                  <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-brand-100 bg-white px-4 py-2.5 text-[12.5px] text-ink-muted shadow-sm">
+                  <div className="mb-[var(--msg-gap)] flex items-center gap-2.5 rounded-xl border border-brand-100 bg-white px-4 py-2 text-[12.5px] text-ink-muted shadow-sm">
                     <IconLock size={13} className="shrink-0 text-brand-700" />
                     <span>
                       <span className="font-semibold text-brand-900">
@@ -1036,7 +1041,7 @@ export default function ChatClient({ user }: { user: any }) {
                   </div>
                 )}
 
-                <div className="space-y-5">
+                <div className="msg-list">
                   {visibleMessages.map((m) => (
                     <MessageBubble
                       key={m.id}
@@ -1054,11 +1059,11 @@ export default function ChatClient({ user }: { user: any }) {
                   ))}
 
                   {isThinking && (
-                    <div className="flex items-center gap-3">
-                      <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-[11px] font-bold text-white sm:flex">
+                    <div className="flex items-center">
+                      <div className="msg-avatar hidden shrink-0 items-center justify-center rounded-full bg-brand-900 font-bold text-white sm:flex">
                         C
                       </div>
-                      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-brand-100 bg-white px-4 py-3.5 shadow-card">
+                      <div className="msg-bubble msg-bubble-assistant flex items-center gap-1.5 border border-brand-100 bg-white shadow-card">
                         <span className="dot h-2 w-2 rounded-full bg-brand-600" />
                         <span className="dot h-2 w-2 rounded-full bg-brand-600" />
                         <span className="dot h-2 w-2 rounded-full bg-brand-600" />
@@ -1072,7 +1077,7 @@ export default function ChatClient({ user }: { user: any }) {
             </div>
 
             {/* Composer */}
-            <div className="shrink-0 border-t border-brand-100 bg-white px-4 pb-4 pt-3 sm:px-6">
+            <div className="composer-shell shrink-0 border-t border-brand-100 bg-white px-4 sm:px-6">
               <div className="mx-auto max-w-3xl">
                 {notice && (
                   <div
@@ -1130,7 +1135,7 @@ export default function ChatClient({ user }: { user: any }) {
                         : "Ask Cortéx…"
                     }
                     disabled={busy}
-                    className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/60 disabled:opacity-60"
+                    className="composer-input block w-full resize-none bg-transparent px-4 pb-1 leading-relaxed text-ink outline-none placeholder:text-ink-muted/60 disabled:opacity-60"
                   />
 
                   <div className="flex items-center justify-between gap-2 px-2 pb-2">
@@ -1268,6 +1273,8 @@ export default function ChatClient({ user }: { user: any }) {
             email={email}
             role={roleLabel[role] || role}
             workspace={workspace}
+            density={density}
+            onDensityChange={setDensity}
             documentTypes={documentTypes}
             canManageDocumentTypes={canUploadPersistent}
             onDocumentTypesChanged={() => {
