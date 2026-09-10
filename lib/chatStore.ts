@@ -17,7 +17,7 @@ export type ChatMessage = {
   content: string;
   sources?: string[];
   citations?: Citation[];
-  mode?: "retrieval" | "document" | "knowledge_base" | "private" | "simple";
+  mode?: "retrieval" | "document" | "knowledge_base" | "private" | "simple" | "memory";
   createdAt?: number;
 };
 

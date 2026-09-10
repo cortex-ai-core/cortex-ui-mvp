@@ -19,7 +19,7 @@ export type ServerMessage = {
   seq: number;
   role: "user" | "assistant" | "system";
   content: string;
-  mode: "retrieval" | "document" | "knowledge_base" | "private" | "simple" | null;
+  mode: "retrieval" | "document" | "knowledge_base" | "private" | "simple" | "memory" | null;
   citations: Citation[];
   sources: unknown[];
   memory_ids: string[];
