@@ -14,6 +14,8 @@ import Image from "next/image";
 import {
   useChatStore,
   readSessionMessages,
+  getConversationId,
+  setConversationId,
   type ToneMode,
   type ChatMessage,
 } from "@/lib/chatStore";
@@ -30,6 +32,7 @@ import UserManagement from "@/components/settings/UserManagement";
 import OrganizationAdministration from "@/components/settings/OrganizationAdministration";
 import RoleManagement from "@/components/settings/RoleManagement";
 import { useDialog } from "@/components/Dialog";
+import { useDensity } from "@/lib/useDensity";
 import {
   listDocuments,
   listDocumentTypes,
@@ -129,6 +132,8 @@ export default function ChatClient({ user }: { user: any }) {
   const userId: string = user?.userId ?? "";
   const email: string = user?.email ?? "";
   const role: string = user?.role ?? "";
+  // namespaceId is the key sent to the server; namespace is the display name.
+  const NAMESPACE_ID: string = user?.namespaceId ?? "";
   const NAMESPACE: string = user?.namespace ?? "";
 
   const persona = personaMap[NAMESPACE] || "General";
@@ -142,11 +147,13 @@ export default function ChatClient({ user }: { user: any }) {
     sessionId,
     messages,
     chatList,
+    conversationMeta,
     createNewSession,
     loadSessionMessages,
     switchSession,
     deleteSession,
     clearAllSessions,
+    syncFromServer,
     appendMessageToLocal,
     appendAssistantMessage,
     startAssistantMessage,
@@ -160,6 +167,7 @@ export default function ChatClient({ user }: { user: any }) {
 
   const [view, setView] = useState<View>("chat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { density, setDensity } = useDensity();
 
   const [input, setInput] = useState("");
   const [ephemeralFiles, setEphemeralFiles] = useState<EphemeralFile[]>([]);
@@ -206,6 +214,9 @@ export default function ChatClient({ user }: { user: any }) {
     } else {
       loadSessionMessages(sessionId);
     }
+    // threads saved on the server (design doc D7): list them, then the
+    // current one is refreshed by loadSessionMessages above
+    void syncFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -510,11 +521,11 @@ export default function ChatClient({ user }: { user: any }) {
           );
         },
         {
-          namespace: NAMESPACE,
+          namespaceId: NAMESPACE_ID,
           privateMode: true,
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
-          identity: { userId, role, namespace: NAMESPACE },
+          identity: { userId, role, namespaceId: NAMESPACE_ID },
         },
       );
     } catch {
@@ -584,11 +595,14 @@ export default function ChatClient({ user }: { user: any }) {
           updateAssistantMessage(delta);
         },
         {
-          namespace: NAMESPACE,
+          namespaceId: NAMESPACE_ID,
           privateMode,
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
           toneMode,
-          identity: { userId, role, namespace: NAMESPACE },
+          identity: { userId, role, namespaceId: NAMESPACE_ID },
+          // continue the server-side thread for this session, or let the server start one
+          conversationId: getConversationId(sessionId),
+          onConversation: (id) => setConversationId(sessionId, id),
         },
       );
     } catch {
@@ -627,17 +641,26 @@ export default function ChatClient({ user }: { user: any }) {
     return chatList
       .map((id) => {
         const msgs = id === sessionId ? messages : readSessionMessages(id);
+        const meta = conversationMeta[id];
         const firstUser = msgs.find((m) => m.role === "user");
-        const title = firstUser?.content?.replace(/\s+/g, " ").trim() || "";
+        const title =
+          firstUser?.content?.replace(/\s+/g, " ").trim() || meta?.title || "";
         return {
           id,
           title: title ? title.slice(0, 70) : "New chat",
-          count: msgs.length,
-          when: msgs[msgs.length - 1]?.createdAt,
+          // a thread synced from the server but not opened here yet has no cached messages
+          count: msgs.length || meta?.count || 0,
+          when: msgs[msgs.length - 1]?.createdAt ?? meta?.when,
         };
       })
-      .filter((p) => p.count > 0 || p.id === sessionId);
-  }, [chatList, sessionId, messages]);
+      .filter((p) => p.count > 0 || p.id === sessionId)
+      // newest first; a fresh, still-empty chat is the newest thing there is
+      .sort((a, b) => {
+        const key = (p: { count: number; when?: number }) =>
+          p.count === 0 ? Number.POSITIVE_INFINITY : p.when || 0;
+        return key(b) - key(a);
+      });
+  }, [chatList, sessionId, messages, conversationMeta]);
 
   const formatWhen = (ts?: number) => {
     if (!ts) return "";
@@ -676,7 +699,10 @@ export default function ChatClient({ user }: { user: any }) {
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-surface">
+    <div
+      data-density={density}
+      className="flex h-screen w-full overflow-hidden bg-surface"
+    >
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -846,7 +872,7 @@ export default function ChatClient({ user }: { user: any }) {
                         const ok = await dialog.confirm({
                           title: "Delete this chat?",
                           message:
-                            "It will be removed from this device. Chats are never stored on the server.",
+                            "It will be removed from this device and from your saved conversations on the server.",
                           confirmLabel: "Delete",
                           danger: true,
                         });
@@ -930,7 +956,7 @@ export default function ChatClient({ user }: { user: any }) {
         {view === "chat" && (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+              <div className="chat-column mx-auto max-w-3xl px-4 sm:px-6">
                 {privateMode && visibleMessages.length === 0 && (
                   <div className="mt-6 sm:mt-12">
                     <div className="mx-auto max-w-xl rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
@@ -973,7 +999,7 @@ export default function ChatClient({ user }: { user: any }) {
                 )}
 
                 {privateMode && visibleMessages.length > 0 && (
-                  <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-brand-100 bg-white px-4 py-2.5 text-[12.5px] text-ink-muted shadow-sm">
+                  <div className="mb-[var(--msg-gap)] flex items-center gap-2.5 rounded-xl border border-brand-100 bg-white px-4 py-2 text-[12.5px] text-ink-muted shadow-sm">
                     <IconLock size={13} className="shrink-0 text-brand-700" />
                     <span>
                       <span className="font-semibold text-brand-900">
@@ -1015,7 +1041,7 @@ export default function ChatClient({ user }: { user: any }) {
                   </div>
                 )}
 
-                <div className="space-y-5">
+                <div className="msg-list">
                   {visibleMessages.map((m) => (
                     <MessageBubble
                       key={m.id}
@@ -1033,11 +1059,11 @@ export default function ChatClient({ user }: { user: any }) {
                   ))}
 
                   {isThinking && (
-                    <div className="flex items-center gap-3">
-                      <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-[11px] font-bold text-white sm:flex">
+                    <div className="flex items-center">
+                      <div className="msg-avatar hidden shrink-0 items-center justify-center rounded-full bg-brand-900 font-bold text-white sm:flex">
                         C
                       </div>
-                      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-brand-100 bg-white px-4 py-3.5 shadow-card">
+                      <div className="msg-bubble msg-bubble-assistant flex items-center gap-1.5 border border-brand-100 bg-white shadow-card">
                         <span className="dot h-2 w-2 rounded-full bg-brand-600" />
                         <span className="dot h-2 w-2 rounded-full bg-brand-600" />
                         <span className="dot h-2 w-2 rounded-full bg-brand-600" />
@@ -1051,7 +1077,7 @@ export default function ChatClient({ user }: { user: any }) {
             </div>
 
             {/* Composer */}
-            <div className="shrink-0 border-t border-brand-100 bg-white px-4 pb-4 pt-3 sm:px-6">
+            <div className="composer-shell shrink-0 border-t border-brand-100 bg-white px-4 sm:px-6">
               <div className="mx-auto max-w-3xl">
                 {notice && (
                   <div
@@ -1109,7 +1135,7 @@ export default function ChatClient({ user }: { user: any }) {
                         : "Ask Cortéx…"
                     }
                     disabled={busy}
-                    className="block w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-muted/60 disabled:opacity-60"
+                    className="composer-input block w-full resize-none bg-transparent px-4 pb-1 leading-relaxed text-ink outline-none placeholder:text-ink-muted/60 disabled:opacity-60"
                   />
 
                   <div className="flex items-center justify-between gap-2 px-2 pb-2">
@@ -1247,6 +1273,8 @@ export default function ChatClient({ user }: { user: any }) {
             email={email}
             role={roleLabel[role] || role}
             workspace={workspace}
+            density={density}
+            onDensityChange={setDensity}
             documentTypes={documentTypes}
             canManageDocumentTypes={canUploadPersistent}
             onDocumentTypesChanged={() => {
@@ -1255,9 +1283,9 @@ export default function ChatClient({ user }: { user: any }) {
             }}
             onClearHistory={async () => {
               const ok = await dialog.confirm({
-                title: "Clear chat history on this device?",
+                title: "Clear chat history?",
                 message:
-                  "Every chat saved in this browser will be deleted. This can't be undone.",
+                  "Every chat saved in this browser and in your saved conversations on the server will be deleted. This can't be undone.",
                 confirmLabel: "Clear history",
                 danger: true,
               });

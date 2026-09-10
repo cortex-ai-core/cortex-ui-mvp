@@ -2,10 +2,24 @@ import { useUserPreferences } from "@/lib/useUserPreferences";
 import { useEffect, useState } from "react";
 import type { ToneMode } from "@/lib/chatStore";
 import type { DocumentType } from "@/lib/documentsApi";
+import type { Density } from "@/lib/useDensity";
 import { getCurrentUserSettings, type SettingsUser } from "@/lib/settingsApi";
 import DocumentTypesSettings from "@/components/DocumentTypesSettings";
 import { IconLogout } from "@/components/icons";
 import { BackToSettings } from "./shared";
+
+const densityOptions: { value: Density; label: string; hint: string }[] = [
+  {
+    value: "compact",
+    label: "Compact",
+    hint: "Tighter spacing, smaller type, wider answers. Shows more of a conversation at once.",
+  },
+  {
+    value: "relaxed",
+    label: "Relaxed",
+    hint: "Roomier spacing and larger type for easier reading.",
+  },
+];
 
 const toneOptions: { value: ToneMode; label: string }[] = [
   { value: "neutral", label: "Neutral" },
@@ -23,6 +37,8 @@ export default function UserSettings({
   email,
   role,
   workspace,
+  density,
+  onDensityChange,
   documentTypes,
   canManageDocumentTypes,
   onDocumentTypesChanged,
@@ -34,6 +50,8 @@ export default function UserSettings({
   email: string;
   role: string;
   workspace: string;
+  density: Density;
+  onDensityChange: (density: Density) => void;
   documentTypes: DocumentType[];
   canManageDocumentTypes: boolean;
   onDocumentTypesChanged: () => void;
@@ -99,6 +117,55 @@ export default function UserSettings({
               </div>
             </div>
           ) : null}
+        </section>
+        <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
+          <h2 className="text-[15px] font-semibold text-brand-900">Display</h2>
+          <p className="mt-1 text-[13.5px] text-ink-muted">
+            Choose how much of a conversation fits on screen. Applies
+            immediately and is remembered in this browser.
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Display density"
+            className="mt-4 grid gap-2 sm:grid-cols-2"
+          >
+            {densityOptions.map((option) => {
+              const selected = density === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onDensityChange(option.value)}
+                  className={`rounded-xl border p-3.5 text-left transition ${
+                    selected
+                      ? "border-brand-900 bg-brand-50 ring-1 ring-brand-900"
+                      : "border-brand-100 bg-white hover:border-brand-500"
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span
+                      aria-hidden
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                        selected ? "border-brand-900" : "border-brand-200"
+                      }`}
+                    >
+                      {selected && (
+                        <span className="h-2 w-2 rounded-full bg-brand-900" />
+                      )}
+                    </span>
+                    <span className="text-[14px] font-semibold text-brand-900">
+                      {option.label}
+                    </span>
+                  </span>
+                  <span className="mt-1.5 block pl-[26px] text-[12.5px] leading-5 text-ink-muted">
+                    {option.hint}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </section>
         <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
           <h2 className="text-[15px] font-semibold text-brand-900">
