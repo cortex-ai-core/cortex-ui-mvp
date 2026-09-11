@@ -1,3 +1,4 @@
+import PersonalizationEditor from "./PersonalizationEditor";
 import { useUserPreferences } from "@/lib/useUserPreferences";
 import { useEffect, useState } from "react";
 import type { ToneMode } from "@/lib/chatStore";
@@ -212,6 +213,10 @@ export default function UserSettings({
               </button>
             ))}
           </div>
+        </section>
+        <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
+          <h2 className="mb-3 text-[15px] font-semibold text-brand-900">Personalization</h2>
+          <PersonalizationEditor key={userId} />
         </section>
         <DocumentTypesSettings
           types={documentTypes}

@@ -134,6 +134,7 @@ export default function ChatClient({ user }: { user: any }) {
   const role: string = user?.role ?? "";
   // namespaceId is the key sent to the server; namespace is the display name.
   const NAMESPACE_ID: string = user?.namespaceId ?? "";
+  const canManageSettings = role === "admin" || role === "super_admin";
   const NAMESPACE: string = user?.namespace ?? "";
 
   const persona = personaMap[NAMESPACE] || "General";
@@ -1264,7 +1265,9 @@ export default function ChatClient({ user }: { user: any }) {
         )}
 
         {/* ---------------- SETTINGS VIEW ---------------- */}
-        {view === "settings" && <SettingsLanding onNavigate={setView} />}
+        {(view === "settings" || (!canManageSettings &&
+          ["user-management", "organization-administration", "role-management"].includes(view))) &&
+          <SettingsLanding role={role} onNavigate={setView} />}
 
         {/* ---------------- USER SETTINGS VIEW ---------------- */}
         {view === "user-settings" && (
@@ -1300,11 +1303,11 @@ export default function ChatClient({ user }: { user: any }) {
         )}
 
         {/* ---------------- ADMINISTRATION VIEWS ---------------- */}
-        {view === "user-management" && (
-          <UserManagement onBack={() => setView("settings")} />
+        {canManageSettings && view === "user-management" && (
+          <UserManagement role={role} onBack={() => setView("settings")} />
         )}
 
-        {view === "organization-administration" && (
+        {canManageSettings && view === "organization-administration" && (
           <OrganizationAdministration
             role={role}
             currentOrganizationId={user?.organizationId ?? ""}
@@ -1313,7 +1316,7 @@ export default function ChatClient({ user }: { user: any }) {
           />
         )}
 
-        {view === "role-management" && (
+        {canManageSettings && view === "role-management" && (
           <RoleManagement
             role={role}
             currentOrganizationId={user?.organizationId ?? ""}
