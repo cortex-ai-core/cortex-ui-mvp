@@ -19,7 +19,7 @@ export type DocumentRow = {
   document_type: string | null;
   description: string | null;
   has_rendition: boolean;
-  namespace: string;
+  namespace_id: string;
   status: DocStatus;
   stage_progress: number;
   stage_detail: string | null;
@@ -35,7 +35,7 @@ export type DocumentRow = {
 
 export type DocumentType = {
   id: string;
-  namespace: string;
+  namespace_id: string;
   name: string;
   description: string | null;
   sort_order: number;

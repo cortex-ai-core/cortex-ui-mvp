@@ -58,6 +58,95 @@
   }
 }
 
+/* =========================================================
+   DISPLAY DENSITY
+   ChatClient sets data-density="compact|relaxed" on its root
+   (see lib/useDensity.ts). Every chat dimension that changes
+   with density reads one of these tokens.
+========================================================= */
+:root,
+[data-density="relaxed"] {
+  --chat-column-py: 2rem;      /* vertical padding of the message column */
+  --msg-gap: 1.25rem;          /* space between consecutive messages */
+  --msg-px: 1.25rem;           /* bubble horizontal padding */
+  --msg-py: 0.875rem;          /* bubble vertical padding */
+  --msg-font: 15px;
+  --msg-line: 1.65;
+  --msg-para-gap: 0.75em;      /* space between paragraphs / list blocks */
+  --msg-radius: 1rem;
+  --msg-max-assistant: 78%;
+  --msg-max-user: 78%;
+  --msg-avatar: 2rem;
+  --msg-avatar-gap: 0.75rem;
+  --msg-sources-mt: 0.75rem;
+  --msg-sources-pt: 0.625rem;
+  --composer-pt: 0.75rem;
+  --composer-pb: 1rem;
+  --composer-input-py: 0.875rem;
+  --composer-font: 15px;
+}
+
+[data-density="compact"] {
+  --chat-column-py: 1rem;
+  --msg-gap: 0.5rem;
+  --msg-px: 0.85rem;
+  --msg-py: 0.45rem;
+  --msg-font: 14px;
+  --msg-line: 1.5;
+  --msg-para-gap: 0.5em;
+  --msg-radius: 0.875rem;
+  --msg-max-assistant: 94%;
+  --msg-max-user: 85%;
+  --msg-avatar: 1.5rem;
+  --msg-avatar-gap: 0.5rem;
+  --msg-sources-mt: 0.45rem;
+  --msg-sources-pt: 0.35rem;
+  --composer-pt: 0.5rem;
+  --composer-pb: 0.625rem;
+  --composer-input-py: 0.625rem;
+  --composer-font: 14px;
+}
+
+/* Chat layout pieces driven by the tokens above */
+.chat-column {
+  padding-top: var(--chat-column-py);
+  padding-bottom: var(--chat-column-py);
+}
+.msg-list > * + * {
+  margin-top: var(--msg-gap);
+}
+.msg-avatar {
+  width: var(--msg-avatar);
+  height: var(--msg-avatar);
+  margin-right: var(--msg-avatar-gap);
+  font-size: calc(var(--msg-avatar) * 0.34);
+}
+.msg-bubble {
+  padding: var(--msg-py) var(--msg-px);
+  font-size: var(--msg-font);
+  border-radius: var(--msg-radius);
+}
+.msg-bubble-assistant {
+  max-width: var(--msg-max-assistant);
+  border-bottom-left-radius: calc(var(--msg-radius) * 0.375);
+}
+.msg-bubble-user {
+  max-width: var(--msg-max-user);
+  border-bottom-right-radius: calc(var(--msg-radius) * 0.375);
+}
+.msg-sources {
+  margin-top: var(--msg-sources-mt);
+  padding-top: var(--msg-sources-pt);
+}
+.composer-shell {
+  padding-top: var(--composer-pt);
+  padding-bottom: var(--composer-pb);
+}
+.composer-input {
+  padding-top: var(--composer-input-py);
+  font-size: var(--composer-font);
+}
+
 /* Brand dot-cluster pattern used on dark panels */
 .brand-pattern {
   background-image: url("/brand/sollucio-pattern.png");
@@ -81,12 +170,12 @@
   margin-bottom: 0;
 }
 .markdown p {
-  margin: 0 0 0.75em;
-  line-height: 1.65;
+  margin: 0 0 var(--msg-para-gap);
+  line-height: var(--msg-line);
 }
 .markdown ul,
 .markdown ol {
-  margin: 0.25em 0 0.9em;
+  margin: 0.2em 0 var(--msg-para-gap);
   padding-left: 1.4em;
 }
 .markdown ul {
@@ -96,8 +185,8 @@
   list-style: decimal;
 }
 .markdown li {
-  margin: 0.25em 0;
-  line-height: 1.55;
+  margin: 0.15em 0;
+  line-height: calc(var(--msg-line) - 0.1);
 }
 .markdown li > ul,
 .markdown li > ol {
@@ -109,7 +198,7 @@
 .markdown h4 {
   font-weight: 650;
   line-height: 1.3;
-  margin: 1.1em 0 0.45em;
+  margin: 1em 0 0.4em;
 }
 .markdown h1 {
   font-size: 1.25em;

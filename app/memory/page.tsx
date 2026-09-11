@@ -10,23 +10,12 @@ export default function MemoryConsole() {
   const [mission, setMission] = useState("");
   const [status, setStatus] = useState("");
 
-  async function update(field: string, value: any) {
-    setStatus("Updating…");
-
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/memory/update`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: value }),
-      }
-    );
-
-    if (!res.ok) {
-      setStatus("❌ Update failed");
-    } else {
-      setStatus("✅ Update stored in Cortéx memory");
-    }
+  // The old backend route this console posted to no longer exists.
+  // Doctrine, identity, tone, rules, and mission belong to the Persona
+  // and PCL work, which will give this page a real home. Until then the
+  // fields are local only.
+  async function update(field: string, _value: any) {
+    setStatus(`Not connected yet: "${field}" will be saved by the Persona and PCL work.`);
   }
 
   return (

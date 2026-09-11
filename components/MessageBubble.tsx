@@ -84,15 +84,15 @@ export default function MessageBubble({
       {!isUser && !isSystem && (
         <div
           aria-hidden
-          className="mr-3 mt-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-900 text-[11px] font-bold text-white sm:flex"
+          className="msg-avatar mt-0.5 hidden shrink-0 items-center justify-center rounded-full bg-brand-900 font-bold text-white sm:flex"
         >
           C
         </div>
       )}
 
       <div
-        className={`max-w-[85%] rounded-2xl px-5 py-3.5 text-[15px] sm:max-w-[78%] ${bubbleClass} ${
-          isUser ? "rounded-br-md" : "rounded-bl-md"
+        className={`msg-bubble min-w-0 ${bubbleClass} ${
+          isUser ? "msg-bubble-user" : "msg-bubble-assistant"
         }`}
       >
         <div className={`markdown ${isUser ? "markdown-dark" : ""}`}>
@@ -109,7 +109,7 @@ export default function MessageBubble({
                       type="button"
                       onClick={() => onCite?.(c)}
                       title={`${citationTitle(c)}${citationWhere(c) ? ` · ${citationWhere(c)}` : ""}`}
-                      className="ml-0.5 inline-flex h-[15px] min-w-[15px] -translate-y-[3px] items-center justify-center rounded px-[3px] align-middle text-[10px] font-semibold leading-none text-brand-800 ring-1 ring-brand-200 transition hover:bg-brand-900 hover:text-white hover:ring-brand-900"
+                      className="ml-0.5 inline-flex h-[1.05em] min-w-[1.05em] -translate-y-[0.2em] items-center justify-center rounded px-[0.2em] align-middle text-[0.7em] font-semibold leading-none text-brand-800 ring-1 ring-brand-200 transition hover:bg-brand-900 hover:text-white hover:ring-brand-900"
                     >
                       {c.n}
                     </button>
@@ -128,16 +128,16 @@ export default function MessageBubble({
         </div>
 
         {!isUser && !isSystem && citedDocs.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-brand-100 pt-2.5">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Sources</span>
+          <div className="msg-sources flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-brand-100">
+            <span className="mr-0.5 text-[0.72em] font-semibold uppercase tracking-[0.08em] text-ink-muted">Sources</span>
             {citedDocs.map((c) => (
               <button
                 key={c.document_id || c.file_name || c.n}
                 type="button"
                 onClick={() => onCite?.(c)}
-                className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg bg-brand-50 px-2 py-1 text-[12px] font-medium text-brand-900 transition hover:bg-brand-100"
+                className="inline-flex max-w-[260px] items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-[0.8em] font-medium text-brand-900 transition hover:bg-brand-100"
               >
-                <IconDoc size={12} />
+                <IconDoc size={11} />
                 <span className="truncate">{citationTitle(c)}</span>
               </button>
             ))}
@@ -145,7 +145,7 @@ export default function MessageBubble({
         )}
 
         {!isUser && !isSystem && citedDocs.length === 0 && sources.length > 0 && (
-          <div className="mt-3 border-t border-brand-100 pt-2 text-xs text-ink-muted">Based on: {sources.join(", ")}</div>
+          <div className="msg-sources border-t border-brand-100 text-[0.8em] text-ink-muted">Based on: {sources.join(", ")}</div>
         )}
       </div>
     </div>

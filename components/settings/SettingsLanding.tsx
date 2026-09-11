@@ -27,7 +27,7 @@ export default function SettingsLanding({
           <SettingsDestination
             title="User Settings"
             description="Personalize how Cortéx responds and manage your document and privacy preferences."
-            detail="Response Style · Document Types · Privacy and Data"
+            detail="Display · Response Style · Document Types · Privacy and Data"
             icon={<IconSettings size={19} />}
             onClick={() => onNavigate("user-settings")}
           />
