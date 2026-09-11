@@ -173,8 +173,8 @@ export default function UserSettings({
             Response Style
           </h2>
           <p className="mt-1 text-[13.5px] text-ink-muted">
-            Save your preferred response style. This preference is not applied
-            to chat responses yet.
+            Choose how Cortéx should sound. The saved style applies to every
+            answer from your next message on.
           </p>
           <p className="mt-2 text-sm text-ink-muted" role="status">
             {preferencesLoading
