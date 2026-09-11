@@ -9,9 +9,12 @@ export type SettingsDestinationView =
 
 export default function SettingsLanding({
   onNavigate,
+  role,
 }: {
   onNavigate: (view: SettingsDestinationView) => void;
+  role: string;
 }) {
+  const canManageSettings = role === "admin" || role === "super_admin";
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -20,7 +23,9 @@ export default function SettingsLanding({
             Settings
           </h2>
           <p className="mt-1 text-[14px] text-ink-muted">
-            Manage your preferences, people, workspace, and access controls.
+            {canManageSettings
+              ? "Manage your preferences, people, workspace, and access controls."
+              : "Manage your personal preferences and settings."}
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -31,6 +36,7 @@ export default function SettingsLanding({
             icon={<IconSettings size={19} />}
             onClick={() => onNavigate("user-settings")}
           />
+          {canManageSettings && <>
           <SettingsDestination
             title="User Management"
             description="View the people who have access to this Cortéx workspace."
@@ -49,6 +55,7 @@ export default function SettingsLanding({
             icon={<IconLock size={18} />}
             onClick={() => onNavigate("role-management")}
           />
+          </>}
         </div>
       </div>
     </div>

@@ -154,7 +154,7 @@ export function replaceUserNamespaces(id: string, namespaceIds: string[]) {
   );
 }
 
-export type UserPreferences = { response_style: ToneMode };
+export type UserPreferences = { response_style: ToneMode; personalization: string };
 
 export const getUserPreferences = () =>
   request<{ preferences: UserPreferences }>("/api/settings/user/preferences");
@@ -163,4 +163,26 @@ export const saveUserPreferences = (responseStyle: ToneMode) =>
   request<{ preferences: UserPreferences }>("/api/settings/user/preferences", {
     method: "PATCH",
     body: JSON.stringify({ response_style: responseStyle }),
+  });
+
+export const getPersonalization = async () => {
+  const { preferences } = await getUserPreferences();
+  return { personalization: preferences.personalization ?? "" };
+};
+
+export const savePersonalization = async (personalization: string) => {
+  const { preferences } = await request<{ preferences: UserPreferences }>(
+    "/api/settings/user/preferences", {
+      method: "PATCH", body: JSON.stringify({ personalization }),
+    },
+  );
+  return { personalization: preferences.personalization };
+};
+
+export const getUserPersonalization = (userId: string) =>
+  request<{ personalization: string }>(`/api/settings/users/${encodeURIComponent(userId)}/personalization`);
+
+export const saveUserPersonalization = (userId: string, personalization: string) =>
+  request<{ personalization: string }>(`/api/settings/users/${encodeURIComponent(userId)}/personalization`, {
+    method: "PATCH", body: JSON.stringify({ personalization }),
   });

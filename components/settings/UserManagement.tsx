@@ -17,9 +17,12 @@ import {
   type RoleRecord,
   type SettingsUser,
 } from "@/lib/settingsApi";
+import PersonalizationDialog from "./PersonalizationDialog";
 import { BackToSettings } from "./shared";
 
-export default function UserManagement({ onBack }: { onBack: () => void }) {
+export default function UserManagement({ onBack, role }: { onBack: () => void; role: string }) {
+  const canPersonalize = role === "admin" || role === "super_admin";
+  const [personalizationUser, setPersonalizationUser] = useState<SettingsUser | null>(null);
   const [users, setUsers] = useState<SettingsUser[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
@@ -110,6 +113,7 @@ export default function UserManagement({ onBack }: { onBack: () => void }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+        {personalizationUser && <PersonalizationDialog user={personalizationUser} onClose={() => setPersonalizationUser(null)} />}
         <BackToSettings onClick={onBack} />
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
@@ -259,6 +263,7 @@ export default function UserManagement({ onBack }: { onBack: () => void }) {
                   <th className="px-5 py-3">Namespaces</th>
                   <th className="px-5 py-3">Role</th>
                   <th className="px-5 py-3">Status</th>
+                  {canPersonalize && <th className="px-5 py-3">Personalization</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-brand-100">
@@ -300,6 +305,13 @@ export default function UserManagement({ onBack }: { onBack: () => void }) {
                         {user.active ? "Active" : "Inactive"}
                       </button>
                     </td>
+                    {canPersonalize && <td className="px-5 py-4">
+                      <button onClick={() => setPersonalizationUser(user)}
+                        disabled={role !== "super_admin" && user.role?.name === "super_admin"}
+                        className="rounded-lg border border-brand-100 px-3 py-2 text-sm font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50">
+                        Edit personalization
+                      </button>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
