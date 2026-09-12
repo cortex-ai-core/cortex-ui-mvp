@@ -12,12 +12,28 @@ export type Citation = {
   snippet: string;
 };
 
+/** Which persona, version and style shaped an answer (the reply's `pcl`). */
+export type PersonaProvenance = {
+  persona_id: string | null;
+  persona_key: string | null;
+  persona_source: "user" | "namespace" | "none";
+  version: number | null;
+  style: string;
+  style_source: "request" | "user" | "persona" | "default";
+  personalization_chars: number;
+  hash: string | null;
+  source: "resolved" | "default";
+  reason: string | null;
+};
+
 export type ChatMeta = {
   citations?: Citation[];
   sources?: Omit<Citation, "snippet" | "chunk_id">[];
   mode?: "retrieval" | "document" | "knowledge_base" | "private" | "simple" | "memory";
   /** server-side thread id; absent in private mode or when memory is off */
   conversationId?: string;
+  /** persona provenance from the server; absent on older backends */
+  pcl?: PersonaProvenance;
 };
 
 export function citationTitle(c: Pick<Citation, "display_name" | "file_name">) {

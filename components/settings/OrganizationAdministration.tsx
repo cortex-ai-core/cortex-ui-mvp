@@ -14,12 +14,15 @@ import {
   createOrganization,
   getNamespaceUsers,
   getOrganizations,
+  getPersonas,
   getUsers,
   removeNamespaceUser,
+  setNamespacePersona,
   updateNamespace,
   updateOrganization,
   type NamespaceRecord,
   type OrganizationRecord,
+  type PersonaRecord,
   type SettingsUser,
 } from "@/lib/settingsApi";
 import { BackToSettings } from "./shared";
@@ -48,6 +51,26 @@ export default function OrganizationAdministration({
   onBack: () => void;
 }) {
   const [organizations, setOrganizations] = useState<OrganizationRecord[]>([]);
+  // Personas for the namespace default select (spec 4.4). Loaded once;
+  // a failed load just hides the select.
+  const [personas, setPersonas] = useState<PersonaRecord[]>([]);
+  const [personaNotice, setPersonaNotice] = useState<{ namespaceId: string; text: string; error: boolean } | null>(null);
+  useEffect(() => {
+    getPersonas().then((r) => setPersonas(r.personas)).catch(() => setPersonas([]));
+  }, []);
+  async function changeNamespacePersona(namespace: NamespaceRecord, personaId: string | null) {
+    setPersonaNotice(null);
+    try {
+      const { namespace: saved } = await setNamespacePersona(namespace.id, personaId);
+      setOrganizations((previous) => previous.map((organization) => ({
+        ...organization,
+        namespaces: organization.namespaces.map((item) => item.id === namespace.id ? { ...item, default_persona_id: saved.default_persona?.id ?? null } : item),
+      })));
+      setPersonaNotice({ namespaceId: namespace.id, error: false, text: saved.default_persona ? `${saved.default_persona.name} is now the default for ${namespace.name}.` : `${namespace.name} now uses the built-in default.` });
+    } catch (reason) {
+      setPersonaNotice({ namespaceId: namespace.id, error: true, text: reason instanceof Error ? reason.message : "Unable to set the default persona." });
+    }
+  }
   const [allUsers, setAllUsers] = useState<SettingsUser[]>([]);
   const [members, setMembers] = useState<SettingsUser[]>([]);
   const [selected, setSelected] = useState<Selection | null>(null);
@@ -472,6 +495,27 @@ export default function OrganizationAdministration({
                                   >
                                     Edit namespace
                                   </button>
+                                  {personas.length > 0 && (
+                                    <label className="mt-3 block text-[11px] font-medium text-ink-muted">
+                                      Default persona
+                                      <select
+                                        aria-label={`Default persona for ${namespace.name}`}
+                                        value={namespace.default_persona_id || ""}
+                                        onChange={(event) => void changeNamespacePersona(namespace, event.target.value || null)}
+                                        className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-2 py-1.5 text-[12.5px] font-normal text-ink"
+                                      >
+                                        <option value="">Built-in default</option>
+                                        {personas
+                                          .filter((p) => (p.is_active || p.id === namespace.default_persona_id) && (p.shared || p.organization?.id === organization.id))
+                                          .map((p) => (
+                                            <option key={p.id} value={p.id}>{p.name}{p.is_active ? "" : " (inactive)"}</option>
+                                          ))}
+                                      </select>
+                                      {personaNotice?.namespaceId === namespace.id && (
+                                        <span role="status" className={`mt-1 block font-normal ${personaNotice.error ? "text-red-700" : "text-emerald-700"}`}>{personaNotice.text}</span>
+                                      )}
+                                    </label>
+                                  )}
                                 </div>
                               );
                             })}

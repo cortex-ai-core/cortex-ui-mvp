@@ -5,7 +5,8 @@ export type SettingsDestinationView =
   | "user-settings"
   | "user-management"
   | "organization-administration"
-  | "role-management";
+  | "role-management"
+  | "personas";
 
 export default function SettingsLanding({
   onNavigate,
@@ -54,6 +55,13 @@ export default function SettingsLanding({
             description="View your role or manage role assignments for your organization."
             icon={<IconLock size={18} />}
             onClick={() => onNavigate("role-management")}
+          />
+          <SettingsDestination
+            title="Personas"
+            description="Define how Cortéx sounds and works for each audience, version the rules, and see what any user will get."
+            detail="Personas · Rules and versions · Preview"
+            icon={<span className="text-lg font-semibold">P</span>}
+            onClick={() => onNavigate("personas")}
           />
           </>}
         </div>

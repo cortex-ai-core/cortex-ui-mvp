@@ -16,7 +16,6 @@ import {
   readSessionMessages,
   getConversationId,
   setConversationId,
-  type ToneMode,
   type ChatMessage,
 } from "@/lib/chatStore";
 import MessageBubble from "@/components/MessageBubble";
@@ -31,6 +30,8 @@ import UserSettings from "@/components/settings/UserSettings";
 import UserManagement from "@/components/settings/UserManagement";
 import OrganizationAdministration from "@/components/settings/OrganizationAdministration";
 import RoleManagement from "@/components/settings/RoleManagement";
+import PersonaAdministration from "@/components/settings/PersonaAdministration";
+import type { PersonaProvenance } from "@/lib/citations";
 import { useDialog } from "@/components/Dialog";
 import { useDensity } from "@/lib/useDensity";
 import {
@@ -67,14 +68,6 @@ import {
 const BACKEND =
   process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || "http://localhost:8080";
 
-const personaMap: Record<string, string> = {
-  core: "CEO",
-  advisory: "Advisory",
-  cybersecurity: "Cyber",
-  recruiting: "Recruiting",
-  datamanagement: "Data",
-  ventures: "Ventures",
-};
 
 const workspaceLabel: Record<string, string> = {
   core: "Core",
@@ -110,7 +103,15 @@ type View =
   | "user-settings"
   | "user-management"
   | "organization-administration"
-  | "role-management";
+  | "role-management"
+  | "personas";
+
+/** "Talent Intelligence · v3" from the reply's persona provenance. */
+function personaLabel(p: PersonaProvenance): string {
+  if (!p.persona_key) return p.source === "default" ? "Default persona" : "No persona";
+  const name = p.persona_key.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return p.version ? `${name} · v${p.version}` : name;
+}
 type EphemeralFile = { name: string; content: string };
 const VIEW_TITLES: Record<View, string> = {
   chat: "Chat",
@@ -120,6 +121,7 @@ const VIEW_TITLES: Record<View, string> = {
   "user-management": "User Management",
   "organization-administration": "Organization Administration",
   "role-management": "Role Management",
+  personas: "Personas",
 };
 
 // -------------------------------------------------------------
@@ -137,7 +139,6 @@ export default function ChatClient({ user }: { user: any }) {
   const canManageSettings = role === "admin" || role === "super_admin";
   const NAMESPACE: string = user?.namespace ?? "";
 
-  const persona = personaMap[NAMESPACE] || "General";
   const workspace = workspaceLabel[NAMESPACE] || NAMESPACE || "Workspace";
 
   const canUploadPersistent = hasPermission(role, "upload_persistent");
@@ -163,10 +164,11 @@ export default function ChatClient({ user }: { user: any }) {
     isSending,
     lockInput,
     unlockInput,
-    toneMode,
   } = useChatStore();
 
   const [view, setView] = useState<View>("chat");
+  // Which persona and version answered last, from the server's provenance.
+  const [lastPersona, setLastPersona] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { density, setDensity } = useDensity();
 
@@ -525,7 +527,6 @@ export default function ChatClient({ user }: { user: any }) {
           namespaceId: NAMESPACE_ID,
           privateMode: true,
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
-          toneMode,
           identity: { userId, role, namespaceId: NAMESPACE_ID },
         },
       );
@@ -576,6 +577,7 @@ export default function ChatClient({ user }: { user: any }) {
         (finalText: string, meta?: ChatMeta) => {
           const body =
             finalText || "Cortéx returned an empty response. Try rephrasing.";
+          if (meta?.pcl) setLastPersona(personaLabel(meta.pcl));
           if (streamingId) {
             finalizeAssistantMessage(streamingId, body, {
               citations: meta?.citations || [],
@@ -599,7 +601,6 @@ export default function ChatClient({ user }: { user: any }) {
           namespaceId: NAMESPACE_ID,
           privateMode,
           ephemeralContext: ephemeralFiles.map((f) => f.content).join("\n\n"),
-          toneMode,
           identity: { userId, role, namespaceId: NAMESPACE_ID },
           // continue the server-side thread for this session, or let the server start one
           conversationId: getConversationId(sessionId),
@@ -739,6 +740,11 @@ export default function ChatClient({ user }: { user: any }) {
               <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-white/55">
                 {workspace}
               </div>
+              {lastPersona && (
+                <div className="mt-1 inline-flex rounded-full border border-white/15 px-2 py-0.5 text-[10px] text-white/60" title="The persona and version that answered last">
+                  {lastPersona}
+                </div>
+              )}
             </div>
           </div>
           <button
@@ -902,7 +908,7 @@ export default function ChatClient({ user }: { user: any }) {
                 {email || userId}
               </div>
               <div className="truncate text-[11.5px] text-white/50">
-                {roleLabel[role] || role} · {persona}
+                {roleLabel[role] || role}
               </div>
             </div>
             <button
@@ -1266,8 +1272,13 @@ export default function ChatClient({ user }: { user: any }) {
 
         {/* ---------------- SETTINGS VIEW ---------------- */}
         {(view === "settings" || (!canManageSettings &&
-          ["user-management", "organization-administration", "role-management"].includes(view))) &&
+          ["user-management", "organization-administration", "role-management", "personas"].includes(view))) &&
           <SettingsLanding role={role} onNavigate={setView} />}
+
+        {/* ---------------- PERSONAS VIEW ---------------- */}
+        {view === "personas" && canManageSettings && (
+          <PersonaAdministration role={role} userId={userId} onBack={() => setView("settings")} />
+        )}
 
         {/* ---------------- USER SETTINGS VIEW ---------------- */}
         {view === "user-settings" && (

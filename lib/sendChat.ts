@@ -1,5 +1,4 @@
-import { mergeIdentity } from "@/lib/identity/identityMiddleware";
-import type { ChatMeta, Citation } from "@/lib/citations";
+import type { ChatMeta, Citation, PersonaProvenance } from "@/lib/citations";
 
 let activeRequest = false;
 
@@ -8,7 +7,6 @@ export type SendChatConfig = {
   namespaceId: string;
   privateMode: boolean;
   ephemeralContext?: string;
-  toneMode: string;
   identity: { userId: string; role: string; namespaceId: string };
   /** server-side thread to continue; omit to start a new one */
   conversationId?: string | null;
@@ -40,6 +38,7 @@ function metaFrom(data: any): ChatMeta {
     sources: Array.isArray(data?.sources) ? data.sources : [],
     mode: data?.mode,
     conversationId: typeof data?.conversationId === "string" ? data.conversationId : undefined,
+    pcl: data?.pcl && typeof data.pcl === "object" ? (data.pcl as PersonaProvenance) : undefined,
   };
 }
 
@@ -74,6 +73,9 @@ async function* readSse(res: Response) {
   }
 }
 
+// The persona, its rules and the user's saved style and note are all
+// resolved on the server from the login identity. The client sends only
+// the message and the thread; it never names a persona or a tone.
 export async function sendChat(
   sessionId: string,
   message: string,
@@ -88,14 +90,11 @@ export async function sendChat(
   activeRequest = true;
 
   try {
-    const { namespaceId, privateMode, ephemeralContext = "", toneMode, identity: identityFromClient } = config;
+    const { namespaceId, privateMode, ephemeralContext = "", identity } = config;
 
-    if (!identityFromClient?.userId || !identityFromClient?.role || !identityFromClient?.namespaceId) {
+    if (!identity?.userId || !identity?.role || !identity?.namespaceId) {
       throw new Error("Invalid identity payload.");
     }
-
-    const selectedDivision = toneMode === "neutral" ? null : toneMode;
-    const identity = mergeIdentity(selectedDivision);
 
     const payload = {
       sessionId,
@@ -104,14 +103,7 @@ export async function sendChat(
       conversationId: privateMode ? null : config.conversationId || null,
       privateMode,
       ephemeralContext, // attached files ride along in every mode; privateMode only disables shared retrieval
-      toneMode,
-      identity: {
-        ...identityFromClient,
-        selectedDivision,
-        effectivePersona: identity.effectivePersona,
-        core: identity.core,
-        division: identity.division,
-      },
+      identity,
     };
 
     const token = tokenFromStorage();

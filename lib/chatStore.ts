@@ -38,8 +38,6 @@ export type ConversationMeta = {
   when?: number;
 };
 
-const TONE_KEY = "cortex_tone_mode";
-
 /**
  * Local storage is per browser, not per login, so every key below is
  * scoped by the user id in the token. Two people sharing a machine never
@@ -203,20 +201,6 @@ export function useChatStore() {
 
   const lockInput = useCallback(() => setIsSending(true), []);
   const unlockInput = useCallback(() => setIsSending(false), []);
-
-  // -------------------------------------------------------------
-  // TONE MODE
-  // -------------------------------------------------------------
-  const [toneMode, setToneMode] = useState<ToneMode>(() => {
-    if (typeof window === "undefined") return "neutral";
-    return (localStorage.getItem(TONE_KEY) as ToneMode) || "neutral";
-  });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(TONE_KEY, toneMode);
-    }
-  }, [toneMode]);
 
   // -------------------------------------------------------------
   // SERVER SYNC
@@ -613,8 +597,5 @@ export function useChatStore() {
     isSending,
     lockInput,
     unlockInput,
-
-    toneMode,
-    setToneMode,
   };
 }
