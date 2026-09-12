@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useLayoutEffect, useRef, type ReactNode, type TextareaHTMLAttributes } from "react";
 
 export function SettingsDestination({
   title,
@@ -49,5 +51,35 @@ export function BackToSettings({ onClick }: { onClick: () => void }) {
     >
       <span aria-hidden="true">←</span> Settings
     </button>
+  );
+}
+
+/**
+ * A textarea that grows with its content, so long rules and descriptions
+ * stay readable without scrolling inside the box. Starts at `minRows`.
+ */
+export function GrowingTextarea({
+  minRows = 2,
+  className = "",
+  value,
+  onChange,
+  ...rest
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight + 2}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      rows={minRows}
+      value={value}
+      onChange={onChange}
+      className={`block w-full resize-none overflow-hidden leading-6 ${className}`}
+      {...rest}
+    />
   );
 }

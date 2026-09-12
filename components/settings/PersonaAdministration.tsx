@@ -23,7 +23,7 @@ import {
 } from "@/lib/settingsApi";
 import type { ToneMode } from "@/lib/chatStore";
 import { useDialog } from "@/components/Dialog";
-import { BackToSettings } from "./shared";
+import { BackToSettings, GrowingTextarea } from "./shared";
 
 // ---------------------------------------------------------------
 // The editor keeps one field per configuration section (spec 43's
@@ -115,9 +115,21 @@ function groupErrors(errors: string[]) {
 }
 
 const input = "w-full rounded-lg border border-brand-100 px-3 py-2 text-[13.5px] text-ink outline-none focus:border-brand-500 disabled:opacity-50";
-const primary = "rounded-lg bg-brand-900 px-4 py-2 text-[13px] font-semibold text-white hover:bg-brand-800 disabled:opacity-50";
-const secondary = "rounded-lg border border-brand-100 px-3 py-2 text-[13px] font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50";
+const primary = "inline-flex items-center justify-center whitespace-nowrap rounded-lg bg-brand-900 px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-brand-800 disabled:opacity-50";
+const secondary = "inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-brand-100 px-3.5 py-2.5 text-[13px] font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50";
 const when = (iso: string) => new Date(iso).toLocaleString();
+
+/** Label on one line, hint on the next, then the control: every field on the page lines up the same way. */
+function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string[]; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block text-[12.5px] font-semibold text-ink">{label}</span>
+      {hint && <span className="mt-0.5 block text-[12px] leading-5 text-ink-muted">{hint}</span>}
+      <span className="mt-1.5 block">{children}</span>
+      {error?.map((e) => <span key={e} role="alert" className="mt-1 block text-[12.5px] text-red-700">{e}</span>)}
+    </label>
+  );
+}
 
 export default function PersonaAdministration({ role, userId, onBack }: { role: string; userId: string; onBack: () => void }) {
   const dialog = useDialog();
@@ -259,28 +271,25 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
 
   const grouped = useMemo(() => groupErrors(errors), [errors]);
   const list = (section: PersonaListSection) => (
-    <label key={section} className="block">
-      <span className="text-[12px] font-semibold text-ink-muted">{SECTION_LABELS[section].label}</span>
-      <span className="ml-2 text-[11.5px] text-ink-muted">{SECTION_LABELS[section].hint} One item per line.</span>
-      <textarea id={`persona-${section}`} rows={3} value={form.lists[section]} disabled={!canEdit || saving}
+    <Field key={section} label={SECTION_LABELS[section].label} hint={`${SECTION_LABELS[section].hint} One item per line.`} error={grouped.bySection[section]}>
+      <GrowingTextarea id={`persona-${section}`} minRows={2} value={form.lists[section]} disabled={!canEdit || saving}
         onChange={(e) => setForm({ ...form, lists: { ...form.lists, [section]: e.target.value } })}
-        className={`mt-1.5 ${input} ${grouped.bySection[section] ? "border-red-300" : ""}`} />
-      {grouped.bySection[section]?.map((e) => <p key={e} role="alert" className="mt-1 text-[12.5px] text-red-700">{e}</p>)}
-    </label>
+        className={`${input} ${grouped.bySection[section] ? "border-red-300" : ""}`} />
+    </Field>
   );
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <BackToSettings onClick={onBack} />
-        <div className="mb-6 flex items-end justify-between gap-4">
-          <div>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
             <h2 className="text-2xl font-semibold tracking-tight text-brand-900">Personas</h2>
-            <p className="mt-1 text-[14px] text-ink-muted">
+            <p className="mt-1 text-[14px] leading-6 text-ink-muted">
               How Cortéx sounds and works for each audience. Rules are saved as numbered versions; the newest is in force. Style and structure change, the evidence never does.
             </p>
           </div>
-          <button onClick={() => setShowCreate((v) => !v)} className={primary}>{showCreate ? "Cancel" : "New persona"}</button>
+          <button onClick={() => setShowCreate((v) => !v)} className={`${primary} shrink-0`}>{showCreate ? "Cancel" : "New persona"}</button>
         </div>
 
         {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-[13.5px] text-red-700">{error}</div>}
@@ -296,7 +305,7 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
               <input id="persona-create-name" required value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} placeholder="Talent Intelligence" className={`mt-1.5 ${input}`} />
             </label>
             <label className="text-[12px] font-semibold text-ink-muted sm:col-span-2">Description
-              <input id="persona-create-description" value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} className={`mt-1.5 ${input}`} />
+              <GrowingTextarea id="persona-create-description" minRows={2} value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} className={`mt-1.5 ${input}`} />
             </label>
             {isSuperAdmin && (
               <label className="flex items-center gap-2 text-[13px] text-ink sm:col-span-2">
@@ -339,22 +348,24 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
           ) : (
             <div className="space-y-5">
               <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
                     <h3 className="text-[15px] font-semibold text-brand-900">{selected.name} <span className="font-normal text-ink-muted">· v{selected.current_version?.version ?? 0}</span></h3>
-                    <p className="text-[12.5px] text-ink-muted">{selected.key} · {selected.shared ? "shared by every organization" : selected.organization?.name}{!canEdit && " · read only: only a super administrator changes shared personas"}</p>
+                    <p className="mt-0.5 text-[12.5px] text-ink-muted">{selected.key} · {selected.shared ? "shared by every organization" : selected.organization?.name}{!canEdit && " · read only: only a super administrator changes shared personas"}</p>
                   </div>
-                  <button onClick={() => void toggleActive()} disabled={!canEdit || saving} className={secondary}>{selected.is_active ? "Deactivate" : "Activate"}</button>
+                  <button onClick={() => void toggleActive()} disabled={!canEdit || saving} className={`${secondary} shrink-0`}>{selected.is_active ? "Deactivate" : "Activate"}</button>
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className="text-[12px] font-semibold text-ink-muted">Name
-                    <input id="persona-name" value={details.name} disabled={!canEdit || saving} onChange={(e) => setDetails({ ...details, name: e.target.value })} className={`mt-1.5 ${input}`} />
-                  </label>
-                  <label className="text-[12px] font-semibold text-ink-muted">Description
-                    <input id="persona-description" value={details.description} disabled={!canEdit || saving} onChange={(e) => setDetails({ ...details, description: e.target.value })} className={`mt-1.5 ${input}`} />
-                  </label>
+                <div className="mt-5 space-y-4">
+                  <Field label="Name">
+                    <input id="persona-name" value={details.name} disabled={!canEdit || saving} onChange={(e) => setDetails({ ...details, name: e.target.value })} className={`${input} max-w-md`} />
+                  </Field>
+                  <Field label="Description" hint="What this persona is for, in a sentence or two. Shown in the list and in User Management.">
+                    <GrowingTextarea id="persona-description" minRows={2} value={details.description} disabled={!canEdit || saving} onChange={(e) => setDetails({ ...details, description: e.target.value })} className={input} />
+                  </Field>
                 </div>
-                <button onClick={() => void saveDetails()} disabled={!canEdit || saving || (details.name.trim() === selected.name && details.description.trim() === (selected.description || ""))} className={`mt-3 ${secondary}`}>Save name and description</button>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button onClick={() => void saveDetails()} disabled={!canEdit || saving || (details.name.trim() === selected.name && details.description.trim() === (selected.description || ""))} className={primary}>Save name and description</button>
+                </div>
               </section>
 
               <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card">
@@ -373,52 +384,49 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
                 {warnings.length > 0 && <ul className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12.5px] text-amber-800">{warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
 
                 {mode === "json" ? (
-                  <textarea id="persona-json" rows={18} value={json} disabled={!canEdit || saving} onChange={(e) => setJson(e.target.value)} spellCheck={false}
-                    className={`mt-4 ${input} font-mono text-[12.5px]`} />
+                  <div className="mt-5">
+                    <GrowingTextarea id="persona-json" minRows={12} value={json} disabled={!canEdit || saving} onChange={(e) => setJson(e.target.value)} spellCheck={false}
+                      className={`${input} font-mono text-[12.5px]`} />
+                  </div>
                 ) : (
-                  <div className="mt-4 space-y-4">
-                    <label className="block">
-                      <span className="text-[12px] font-semibold text-ink-muted">Identity</span>
-                      <span className="ml-2 text-[11.5px] text-ink-muted">Who Cortéx is for this audience. Opens the prompt.</span>
-                      <textarea id="persona-identity" rows={3} value={form.identity} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, identity: e.target.value })} className={`mt-1.5 ${input} ${grouped.bySection.identity ? "border-red-300" : ""}`} />
-                      {grouped.bySection.identity?.map((e) => <p key={e} role="alert" className="mt-1 text-[12.5px] text-red-700">{e}</p>)}
-                    </label>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <label className="text-[12px] font-semibold text-ink-muted">Response style
-                        <select id="persona-style" value={form.style} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, style: e.target.value as Form["style"] })} className={`mt-1.5 ${input}`}>
+                  <div className="mt-5 space-y-5">
+                    <Field label="Identity" hint="Who Cortéx is for this audience. Opens the prompt." error={grouped.bySection.identity}>
+                      <GrowingTextarea id="persona-identity" minRows={3} value={form.identity} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, identity: e.target.value })} className={`${input} ${grouped.bySection.identity ? "border-red-300" : ""}`} />
+                    </Field>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <Field label="Response style" hint="Overrides the user's saved style only when locked.">
+                        <select id="persona-style" value={form.style} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, style: e.target.value as Form["style"] })} className={input}>
                           <option value="">Not set</option>
                           {STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
-                      </label>
-                      <label className="text-[12px] font-semibold text-ink-muted">Length
-                        <select id="persona-length" value={form.length} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, length: e.target.value as Form["length"] })} className={`mt-1.5 ${input}`}>
+                      </Field>
+                      <Field label="Length" hint="How much an answer should say.">
+                        <select id="persona-length" value={form.length} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, length: e.target.value as Form["length"] })} className={input}>
                           <option value="">Not set</option>
                           {LENGTHS.map((l) => <option key={l} value={l}>{l}</option>)}
                         </select>
-                      </label>
-                      <label className="flex items-end gap-2 pb-2 text-[13px] text-ink">
-                        <input id="persona-lock-style" type="checkbox" checked={form.lockStyle} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, lockStyle: e.target.checked })} />
-                        Lock the style (users cannot override it)
-                      </label>
+                      </Field>
+                      <Field label="Style lock" hint="When locked, users cannot pick another style.">
+                        <span className="flex min-h-[42px] items-center gap-2 text-[13.5px] text-ink">
+                          <input id="persona-lock-style" type="checkbox" checked={form.lockStyle} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, lockStyle: e.target.checked })} />
+                          Lock the style
+                        </span>
+                      </Field>
                     </div>
                     {grouped.bySection.response?.map((e) => <p key={e} role="alert" className="text-[12.5px] text-red-700">{e}</p>)}
                     {PERSONA_LIST_SECTIONS.map(list)}
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="block">
-                        <span className="text-[12px] font-semibold text-ink-muted">Preferred terms</span>
-                        <span className="ml-2 text-[11.5px] text-ink-muted">One per line as <code>term -&gt; preferred</code>.</span>
-                        <textarea id="persona-prefer" rows={3} value={form.prefer} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, prefer: e.target.value })} className={`mt-1.5 ${input}`} />
-                      </label>
-                      <label className="block">
-                        <span className="text-[12px] font-semibold text-ink-muted">Protected terms</span>
-                        <span className="ml-2 text-[11.5px] text-ink-muted">Kept exactly as the sources write them. One per line.</span>
-                        <textarea id="persona-protect" rows={3} value={form.protect} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, protect: e.target.value })} className={`mt-1.5 ${input}`} />
-                      </label>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field label="Preferred terms" hint="One per line as: term -> preferred term.">
+                        <GrowingTextarea id="persona-prefer" minRows={2} value={form.prefer} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, prefer: e.target.value })} className={input} />
+                      </Field>
+                      <Field label="Protected terms" hint="Kept exactly as the sources write them. One per line.">
+                        <GrowingTextarea id="persona-protect" minRows={2} value={form.protect} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, protect: e.target.value })} className={input} />
+                      </Field>
                     </div>
                     {grouped.bySection.terminology?.map((e) => <p key={e} role="alert" className="text-[12.5px] text-red-700">{e}</p>)}
                   </div>
                 )}
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-brand-100 pt-4">
                   <button onClick={saveFromEditor} disabled={!canEdit || saving} className={primary}>{saving ? "Saving…" : `Save as version ${(selected.current_version?.version ?? 0) + 1}`}</button>
                   <button onClick={() => setShowVersions((v) => !v)} className={secondary}>{showVersions ? "Hide versions" : `Versions (${versions.length})`}</button>
                 </div>
@@ -440,12 +448,12 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
               <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-card">
                 <h3 className="text-[15px] font-semibold text-brand-900">Preview for a user</h3>
                 <p className="mt-1 text-[12.5px] text-ink-muted">Exactly what this user gets on their next message: which persona and version, the style, and the text the model sees.</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <select id="persona-preview-user" value={previewUserId} onChange={(e) => setPreviewUserId(e.target.value)} className={`${input} max-w-sm`}>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <select id="persona-preview-user" value={previewUserId} onChange={(e) => setPreviewUserId(e.target.value)} className={`${input} w-auto min-w-[16rem] max-w-full`}>
                     {!users.some((u) => u.id === userId) && <option value={userId}>You</option>}
                     {users.map((u) => <option key={u.id} value={u.id}>{u.email}{u.id === userId ? " (you)" : ""}</option>)}
                   </select>
-                  <button onClick={() => void runPreview()} disabled={previewBusy} className={secondary}>{previewBusy ? "Loading…" : "Preview"}</button>
+                  <button onClick={() => void runPreview()} disabled={previewBusy} className={primary}>{previewBusy ? "Loading…" : "Preview"}</button>
                 </div>
                 {preview && (
                   <div className="mt-4 space-y-3 text-[13px]">

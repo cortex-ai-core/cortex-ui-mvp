@@ -290,7 +290,7 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
           </div>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-brand-100 bg-white shadow-card">
-            <table className="w-full min-w-[820px] text-left text-[13.5px]">
+            <table className="w-full min-w-[1040px] text-left text-[13.5px]">
               <thead className="bg-brand-50 text-[11px] uppercase tracking-[0.08em] text-ink-muted">
                 <tr>
                   <th className="px-5 py-3">User</th>
@@ -347,7 +347,7 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                         disabled={saving || (role !== "super_admin" && user.role?.name === "super_admin")}
                         value={user.persona?.id || ""}
                         onChange={(event) => void changePersona(user, event.target.value || null)}
-                        className="rounded-lg border border-brand-100 px-2.5 py-1.5 disabled:opacity-50"
+                        className="whitespace-nowrap rounded-lg border border-brand-100 px-2.5 py-1.5 disabled:opacity-50"
                       >
                         <option value="">Namespace default</option>
                         {personas
@@ -360,7 +360,7 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                     {canPersonalize && <td className="px-5 py-4">
                       <button onClick={() => setPersonalizationUser(user)}
                         disabled={role !== "super_admin" && user.role?.name === "super_admin"}
-                        className="rounded-lg border border-brand-100 px-3 py-2 text-sm font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50">
+                        className="whitespace-nowrap rounded-lg border border-brand-100 px-3 py-2 text-sm font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50">
                         Edit personalization
                       </button>
                     </td>}
