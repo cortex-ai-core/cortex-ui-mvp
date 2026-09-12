@@ -1,21 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ToneMode } from "./chatStore";
-import { getUserPreferences, saveUserPreferences } from "./settingsApi";
+import { getUserPreferences, saveUserPreferences, type PersonaLength } from "./settingsApi";
 
 type PreferenceState = {
   userId: string;
-  tone: ToneMode;
+  length: PersonaLength | null;
   loaded: boolean;
   error: string | null;
   saved: boolean;
 };
 
+/** The user's own answer length (null = the persona decides), loaded and saved through the preferences route. */
 export function useUserPreferences(userId: string) {
   const [state, setState] = useState<PreferenceState>({
     userId: "",
-    tone: "neutral",
+    length: null,
     loaded: false,
     error: null,
     saved: false,
@@ -33,7 +33,7 @@ export function useUserPreferences(userId: string) {
         if (generation.current !== requestGeneration) return;
         setState({
           userId,
-          tone: preferences.response_style,
+          length: preferences.response_length ?? null,
           loaded: true,
           error: null,
           saved: false,
@@ -43,7 +43,7 @@ export function useUserPreferences(userId: string) {
         if (generation.current !== requestGeneration) return;
         setState({
           userId,
-          tone: "neutral",
+          length: null,
           loaded: false,
           error:
             reason instanceof Error
@@ -60,18 +60,18 @@ export function useUserPreferences(userId: string) {
   const current = state.userId === userId;
   const loaded = current && state.loaded;
 
-  async function save(tone: ToneMode) {
+  async function save(length: PersonaLength | null) {
     if (!loaded || savingRef.current) return;
     const requestGeneration = generation.current;
     savingRef.current = true;
     setSaving(true);
     setState((previous) => ({ ...previous, error: null, saved: false }));
     try {
-      const { preferences } = await saveUserPreferences(tone);
+      const { preferences } = await saveUserPreferences(length);
       if (generation.current !== requestGeneration) return;
       setState({
         userId,
-        tone: preferences.response_style,
+        length: preferences.response_length ?? null,
         loaded: true,
         error: null,
         saved: true,
@@ -104,7 +104,7 @@ export function useUserPreferences(userId: string) {
   }
 
   return {
-    toneMode: current ? state.tone : ("neutral" as ToneMode),
+    length: current ? state.length : null,
     loading: !loaded && !(current && state.error),
     loaded,
     saving,
@@ -114,4 +114,3 @@ export function useUserPreferences(userId: string) {
     reload,
   };
 }
-

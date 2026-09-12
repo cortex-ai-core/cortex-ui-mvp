@@ -1,10 +1,9 @@
 import PersonalizationEditor from "./PersonalizationEditor";
 import { useUserPreferences } from "@/lib/useUserPreferences";
 import { useEffect, useState } from "react";
-import type { ToneMode } from "@/lib/chatStore";
 import type { DocumentType } from "@/lib/documentsApi";
 import type { Density } from "@/lib/useDensity";
-import { getCurrentUserSettings, type SettingsUser } from "@/lib/settingsApi";
+import { getCurrentUserSettings, type PersonaLength, type SettingsUser } from "@/lib/settingsApi";
 import DocumentTypesSettings from "@/components/DocumentTypesSettings";
 import { IconLogout } from "@/components/icons";
 import { BackToSettings } from "./shared";
@@ -22,15 +21,11 @@ const densityOptions: { value: Density; label: string; hint: string }[] = [
   },
 ];
 
-const toneOptions: { value: ToneMode; label: string }[] = [
-  { value: "neutral", label: "Neutral" },
-  { value: "ceo", label: "CEO" },
-  { value: "king", label: "King" },
-  { value: "advisory", label: "Advisory" },
-  { value: "recruiting", label: "Recruiting" },
-  { value: "cybersecurity", label: "Cybersecurity" },
-  { value: "datamanagement", label: "Data management" },
-  { value: "ventures", label: "Ventures" },
+const lengthOptions: { value: PersonaLength | null; label: string; hint: string }[] = [
+  { value: null, label: "Let the persona decide", hint: "Uses the length set on your persona, if any." },
+  { value: "concise", label: "Concise", hint: "As short as the question allows." },
+  { value: "standard", label: "Standard", hint: "A full answer without extra detail." },
+  { value: "detailed", label: "Detailed", hint: "A full answer with its supporting detail." },
 ];
 
 export default function UserSettings({
@@ -61,13 +56,13 @@ export default function UserSettings({
   onBack: () => void;
 }) {
   const {
-    toneMode,
+    length: answerLength,
     loading: preferencesLoading,
     loaded: preferencesLoaded,
     saving: preferencesSaving,
     error: preferencesError,
     saved: preferencesSaved,
-    save: onToneChange,
+    save: onLengthChange,
     reload: onRetryPreferences,
   } = useUserPreferences(userId);
   const [profile, setProfile] = useState<SettingsUser | null>(null);
@@ -170,19 +165,20 @@ export default function UserSettings({
         </section>
         <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
           <h2 className="text-[15px] font-semibold text-brand-900">
-            Response Style
+            Answer length
           </h2>
           <p className="mt-1 text-[13.5px] text-ink-muted">
-            Choose how Cortéx should sound. The saved style applies to every
-            answer from your next message on.
+            How much each answer should say. How Cortéx sounds comes from the
+            persona your administrator assigned; this is your own preference
+            on top of it, and applies from your next message on.
           </p>
           <p className="mt-2 text-sm text-ink-muted" role="status">
             {preferencesLoading
-              ? "Loading saved response style…"
+              ? "Loading saved answer length…"
               : preferencesSaving
                 ? "Saving…"
                 : preferencesSaved
-                  ? "Response style saved to your account."
+                  ? "Answer length saved to your account."
                   : "Changes are saved automatically to your account."}
           </p>
           {preferencesError && (
@@ -192,7 +188,7 @@ export default function UserSettings({
             >
               {preferencesError}{" "}
               {preferencesLoaded ? (
-                "Your previous response style is unchanged. Select a style to try again."
+                "Your previous answer length is unchanged. Select one to try again."
               ) : (
                 <button onClick={onRetryPreferences} className="underline">
                   Retry loading
@@ -201,13 +197,14 @@ export default function UserSettings({
             </div>
           )}
           <div className="mt-4 flex flex-wrap gap-2">
-            {toneOptions.map((option) => (
+            {lengthOptions.map((option) => (
               <button
-                key={option.value}
-                onClick={() => void onToneChange(option.value)}
+                key={option.value ?? "persona"}
+                onClick={() => void onLengthChange(option.value)}
                 disabled={!preferencesLoaded || preferencesSaving}
-                aria-pressed={toneMode === option.value}
-                className={`disabled:opacity-50 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition ${toneMode === option.value ? "border-brand-900 bg-brand-900 text-white" : "border-brand-100 bg-white text-ink hover:border-brand-500"}`}
+                aria-pressed={answerLength === option.value}
+                title={option.hint}
+                className={`disabled:opacity-50 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition ${answerLength === option.value ? "border-brand-900 bg-brand-900 text-white" : "border-brand-100 bg-white text-ink hover:border-brand-500"}`}
               >
                 {option.label}
               </button>

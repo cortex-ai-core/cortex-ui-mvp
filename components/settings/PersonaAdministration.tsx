@@ -11,6 +11,7 @@ import {
   previewPersona,
   savePersonaVersion,
   updatePersona,
+  PERSONA_LENGTHS,
   PERSONA_LIST_SECTIONS,
   ValidationError,
   type PersonaConfiguration,
@@ -21,7 +22,6 @@ import {
   type PersonaVersion,
   type SettingsUser,
 } from "@/lib/settingsApi";
-import type { ToneMode } from "@/lib/chatStore";
 import { useDialog } from "@/components/Dialog";
 import { BackToSettings, GrowingTextarea } from "./shared";
 
@@ -41,23 +41,18 @@ const SECTION_LABELS: Record<PersonaListSection, { label: string; hint: string }
   required: { label: "Required in every answer", hint: "Items every answer must include." },
   prohibited: { label: "Never", hint: "Items no answer may include." },
 };
-const STYLES: ToneMode[] = ["neutral", "ceo", "king", "advisory", "recruiting", "cybersecurity", "datamanagement", "ventures"];
-const LENGTHS: PersonaLength[] = ["concise", "standard", "detailed"];
-
 type Form = {
   identity: string;
-  style: "" | ToneMode;
   length: "" | PersonaLength;
   lists: Record<PersonaListSection, string>;
   prefer: string;
   protect: string;
-  lockStyle: boolean;
 };
 
 const emptyForm = (): Form => ({
-  identity: "", style: "", length: "",
+  identity: "", length: "",
   lists: Object.fromEntries(PERSONA_LIST_SECTIONS.map((s) => [s, ""])) as Record<PersonaListSection, string>,
-  prefer: "", protect: "", lockStyle: false,
+  prefer: "", protect: "",
 });
 
 const lines = (text: string) => text.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -66,22 +61,17 @@ function fromConfiguration(config: PersonaConfiguration | null | undefined): For
   const form = emptyForm();
   if (!config) return form;
   form.identity = config.identity?.text || "";
-  form.style = config.response?.style || "";
   form.length = config.response?.length || "";
   for (const section of PERSONA_LIST_SECTIONS) form.lists[section] = (config[section] || []).join("\n");
   form.prefer = Object.entries(config.terminology?.prefer || {}).map(([from, to]) => `${from} -> ${to}`).join("\n");
   form.protect = (config.terminology?.protect || []).join("\n");
-  form.lockStyle = Boolean(config.lock_style);
   return form;
 }
 
 function toConfiguration(form: Form): PersonaConfiguration {
   const config: PersonaConfiguration = { schema: 1 };
   if (form.identity.trim()) config.identity = { text: form.identity.trim() };
-  const response: NonNullable<PersonaConfiguration["response"]> = {};
-  if (form.style) response.style = form.style;
-  if (form.length) response.length = form.length;
-  if (Object.keys(response).length) config.response = response;
+  if (form.length) config.response = { length: form.length };
   for (const section of PERSONA_LIST_SECTIONS) {
     const items = lines(form.lists[section]);
     if (items.length) config[section] = items;
@@ -96,7 +86,6 @@ function toConfiguration(form: Form): PersonaConfiguration {
   if (Object.keys(prefer).length || protect.length) {
     config.terminology = { ...(Object.keys(prefer).length ? { prefer } : {}), ...(protect.length ? { protect } : {}) };
   }
-  if (form.lockStyle) config.lock_style = true;
   return config;
 }
 
@@ -108,7 +97,7 @@ function groupErrors(errors: string[]) {
     const m = error.match(/^([a-z_]+)(?:\.[a-z_]+)?(?:\[\d+\])?(?:\[".*?"\])?\s/);
     const key = m?.[1];
     if (key && (PERSONA_LIST_SECTIONS as readonly string[]).includes(key)) (bySection[key] ||= []).push(error);
-    else if (key === "identity" || key === "response" || key === "terminology" || key === "lock_style") (bySection[key] ||= []).push(error);
+    else if (key === "identity" || key === "response" || key === "terminology") (bySection[key] ||= []).push(error);
     else general.push(error);
   }
   return { bySection, general };
@@ -393,24 +382,12 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
                     <Field label="Identity" hint="Who Cortéx is for this audience. Opens the prompt." error={grouped.bySection.identity}>
                       <GrowingTextarea id="persona-identity" minRows={3} value={form.identity} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, identity: e.target.value })} className={`${input} ${grouped.bySection.identity ? "border-red-300" : ""}`} />
                     </Field>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      <Field label="Response style" hint="Overrides the user's saved style only when locked.">
-                        <select id="persona-style" value={form.style} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, style: e.target.value as Form["style"] })} className={input}>
-                          <option value="">Not set</option>
-                          {STYLES.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Length" hint="How much an answer should say.">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field label="Default answer length" hint="How much an answer should say. A user's own setting in User Settings overrides it.">
                         <select id="persona-length" value={form.length} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, length: e.target.value as Form["length"] })} className={input}>
                           <option value="">Not set</option>
-                          {LENGTHS.map((l) => <option key={l} value={l}>{l}</option>)}
+                          {PERSONA_LENGTHS.map((l) => <option key={l} value={l}>{l}</option>)}
                         </select>
-                      </Field>
-                      <Field label="Style lock" hint="When locked, users cannot pick another style.">
-                        <span className="flex min-h-[42px] items-center gap-2 text-[13.5px] text-ink">
-                          <input id="persona-lock-style" type="checkbox" checked={form.lockStyle} disabled={!canEdit || saving} onChange={(e) => setForm({ ...form, lockStyle: e.target.checked })} />
-                          Lock the style
-                        </span>
                       </Field>
                     </div>
                     {grouped.bySection.response?.map((e) => <p key={e} role="alert" className="text-[12.5px] text-red-700">{e}</p>)}
@@ -459,7 +436,7 @@ export default function PersonaAdministration({ role, userId, onBack }: { role: 
                   <div className="mt-4 space-y-3 text-[13px]">
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-ink">
                       <span><span className="text-ink-muted">Persona:</span> {preview.persona ? `${preview.persona.name} · v${preview.version} (${preview.persona_source === "user" ? "assigned" : "namespace default"})` : preview.source === "default" ? `built-in default (${preview.reason})` : "none, built-in default"}</span>
-                      <span><span className="text-ink-muted">Style:</span> {preview.style} ({preview.style_source})</span>
+                      <span><span className="text-ink-muted">Length:</span> {preview.length ? `${preview.length} (${preview.length_source === "user" ? "the user's own" : "persona default"})` : "not set"}</span>
                       <span><span className="text-ink-muted">Note:</span> {preview.personalization ? `${preview.personalization.length} characters` : "none"}</span>
                     </div>
                     {preview.rendered && (["persona", "structureRules", "task", "rules", "terminology", "personalization"] as const).map((k) => preview.rendered?.[k] ? (

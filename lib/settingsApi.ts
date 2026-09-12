@@ -1,5 +1,8 @@
-import type { ToneMode } from "./chatStore";
 import { BACKEND, ApiError } from "./documentsApi";
+
+/** A user's own answer length, or a persona's default: concise, standard or detailed. */
+export type PersonaLength = "concise" | "standard" | "detailed";
+export const PERSONA_LENGTHS: PersonaLength[] = ["concise", "standard", "detailed"];
 
 export type NamespaceRecord = {
   id: string;
@@ -173,15 +176,20 @@ export function replaceUserNamespaces(id: string, namespaceIds: string[]) {
   );
 }
 
-export type UserPreferences = { response_style: ToneMode; personalization: string };
+export type UserPreferences = {
+  /** the user's own answer length; null lets the persona decide */
+  response_length: PersonaLength | null;
+  personalization: string;
+  persona_id?: string | null;
+};
 
 export const getUserPreferences = () =>
   request<{ preferences: UserPreferences }>("/api/settings/user/preferences");
 
-export const saveUserPreferences = (responseStyle: ToneMode) =>
+export const saveUserPreferences = (responseLength: PersonaLength | null) =>
   request<{ preferences: UserPreferences }>("/api/settings/user/preferences", {
     method: "PATCH",
-    body: JSON.stringify({ response_style: responseStyle }),
+    body: JSON.stringify({ response_length: responseLength }),
   });
 
 export const getPersonalization = async () => {
@@ -211,7 +219,6 @@ export const saveUserPersonalization = (userId: string, personalization: string)
 // history; saving a new version validates first and inserts nothing on
 // failure, which arrives here as a ValidationError with its errors.
 // ---------------------------------------------------------------
-export type PersonaLength = "concise" | "standard" | "detailed";
 export const PERSONA_LIST_SECTIONS = [
   "operating_instructions",
   "evaluation_rules",
@@ -228,9 +235,8 @@ export type PersonaListSection = (typeof PERSONA_LIST_SECTIONS)[number];
 export type PersonaConfiguration = Partial<Record<PersonaListSection, string[]>> & {
   schema?: 1;
   identity?: { text?: string };
-  response?: { style?: ToneMode; length?: PersonaLength };
+  response?: { length?: PersonaLength };
   terminology?: { prefer?: Record<string, string>; protect?: string[] };
-  lock_style?: boolean;
 };
 export type PersonaVersion = {
   id: string;
@@ -257,8 +263,8 @@ export type PersonaPreview = {
   persona: PersonaSummary | null;
   persona_source: "user" | "namespace" | "none";
   version: number | null;
-  style: string;
-  style_source: string;
+  length: PersonaLength | null;
+  length_source: "user" | "persona" | "none";
   personalization: string;
   rendered: { persona?: string | null; structureRules?: string | null; task?: string | null; rules?: string | null; terminology?: string | null; personalization?: string | null } | null;
 };

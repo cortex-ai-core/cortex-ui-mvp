@@ -21,16 +21,6 @@ export type ChatMessage = {
   createdAt?: number;
 };
 
-export type ToneMode =
-  | "neutral"
-  | "king"
-  | "ceo"
-  | "advisory"
-  | "recruiting"
-  | "cybersecurity"
-  | "datamanagement"
-  | "ventures";
-
 /** What the server knows about a thread, kept so the sidebar can list threads not yet loaded here. */
 export type ConversationMeta = {
   title: string | null;

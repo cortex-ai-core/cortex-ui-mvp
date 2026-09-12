@@ -18,8 +18,8 @@ export type PersonaProvenance = {
   persona_key: string | null;
   persona_source: "user" | "namespace" | "none";
   version: number | null;
-  style: string;
-  style_source: "request" | "user" | "persona" | "default";
+  length: "concise" | "standard" | "detailed" | null;
+  length_source: "user" | "persona" | "none";
   personalization_chars: number;
   hash: string | null;
   source: "resolved" | "default";
