@@ -1,10 +1,9 @@
 import PersonalizationEditor from "./PersonalizationEditor";
 import { useUserPreferences } from "@/lib/useUserPreferences";
 import { useEffect, useState } from "react";
-import type { DocumentType } from "@/lib/documentsApi";
 import type { Density } from "@/lib/useDensity";
 import { getCurrentUserSettings, type PersonaLength, type SettingsUser } from "@/lib/settingsApi";
-import DocumentTypesSettings from "@/components/DocumentTypesSettings";
+import { listConversations, type RetentionInfo } from "@/lib/conversationsApi";
 import { IconLogout } from "@/components/icons";
 import { BackToSettings } from "./shared";
 
@@ -35,9 +34,6 @@ export default function UserSettings({
   workspace,
   density,
   onDensityChange,
-  documentTypes,
-  canManageDocumentTypes,
-  onDocumentTypesChanged,
   onClearHistory,
   onSignOut,
   onBack,
@@ -48,9 +44,6 @@ export default function UserSettings({
   workspace: string;
   density: Density;
   onDensityChange: (density: Density) => void;
-  documentTypes: DocumentType[];
-  canManageDocumentTypes: boolean;
-  onDocumentTypesChanged: () => void;
   onClearHistory: () => Promise<void>;
   onSignOut: () => void;
   onBack: () => void;
@@ -66,9 +59,14 @@ export default function UserSettings({
     reload: onRetryPreferences,
   } = useUserPreferences(userId);
   const [profile, setProfile] = useState<SettingsUser | null>(null);
+  // what the organization does with this user's chats (the list route reports it)
+  const [retention, setRetention] = useState<RetentionInfo | null>(null);
   useEffect(() => {
     getCurrentUserSettings()
       .then(({ user }) => setProfile(user))
+      .catch(() => undefined);
+    listConversations({ limit: 1 })
+      .then((r) => setRetention(r.retention ?? null))
       .catch(() => undefined);
   }, []);
   const accountEmail = profile?.email || email || userId;
@@ -215,19 +213,27 @@ export default function UserSettings({
           <h2 className="mb-3 text-[15px] font-semibold text-brand-900">Personalization</h2>
           <PersonalizationEditor key={userId} />
         </section>
-        <DocumentTypesSettings
-          types={documentTypes}
-          canManage={canManageDocumentTypes}
-          onChanged={onDocumentTypesChanged}
-        />
         <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
           <h2 className="text-[15px] font-semibold text-brand-900">
             Privacy and Data
           </h2>
           <ul className="mt-3 space-y-2 text-[13.5px] text-ink-muted">
             <li>
-              Chats are kept only in this browser. They are not stored on the
-              server.
+              Chats are saved to your account, so they follow you across
+              devices.{" "}
+              {retention
+                ? retention.days === 0
+                  ? "Your organization keeps them in full for as long as you keep them."
+                  : `Your organization keeps each chat in full for ${retention.days} days after its last message. After that Cortéx keeps a short summary of what was discussed and decided, and removes the messages. Archived chats stay in your list, read-only.`
+                : "Your organization sets how long they are kept in full before they are summarised."}
+              {retention?.hold
+                ? " A retention hold is in place right now, so no chat is archived or deleted until it is released."
+                : ""}
+            </li>
+            <li>
+              You can delete a chat at any time from the list. That removes its
+              messages and its summary everywhere. Notes Cortéx saved from it
+              are kept and marked as coming from a deleted chat.
             </li>
             <li>
               Files attached in a chat are used for that conversation only.
@@ -246,7 +252,7 @@ export default function UserSettings({
               onClick={onClearHistory}
               className="rounded-lg border border-brand-100 bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
             >
-              Clear chat history on this device
+              Delete all my chats
             </button>
             <button
               onClick={onSignOut}

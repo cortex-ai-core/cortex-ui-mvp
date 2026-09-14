@@ -8,6 +8,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import type { ReactNode } from "react";
 import {
   addNamespaceUser,
   createNamespace,
@@ -27,7 +28,13 @@ import {
 } from "@/lib/settingsApi";
 import { BackToSettings } from "./shared";
 
-type OrganizationForm = { id?: string; name: string; description: string };
+import RetentionSettings, { RetentionSummary, describeRetention } from "@/components/settings/RetentionSettings";
+import DocumentTypesPanel from "@/components/settings/DocumentTypesPanel";
+import { getOrganizationRetention, updateOrganizationRetention } from "@/lib/settingsApi";
+import { useDialog } from "@/components/Dialog";
+
+/** retentionDays rides along when editing an existing organization; undefined = leave as is */
+type OrganizationForm = { id?: string; name: string; description: string; retentionDays?: number; retentionDaysBefore?: number };
 type NamespaceForm = {
   organizationId: string;
   id?: string;
@@ -44,11 +51,14 @@ export default function OrganizationAdministration({
   currentOrganizationId,
   currentNamespace,
   onBack,
+  onDocumentTypesChanged,
 }: {
   role: string;
   currentOrganizationId: string;
   currentNamespace: string;
   onBack: () => void;
+  /** the chat client refreshes the upload form's type menu */
+  onDocumentTypesChanged?: () => void;
 }) {
   const [organizations, setOrganizations] = useState<OrganizationRecord[]>([]);
   // Personas for the namespace default select (spec 4.4). Loaded once;
@@ -143,6 +153,8 @@ export default function OrganizationAdministration({
     }
   }
 
+  const dialog = useDialog();
+
   async function saveOrganization(event: FormEvent) {
     event.preventDefault();
     if (!organizationForm) return;
@@ -153,9 +165,28 @@ export default function OrganizationAdministration({
         name: organizationForm.name,
         description: organizationForm.description,
       };
-      if (organizationForm.id)
-        await updateOrganization(organizationForm.id, input);
+      const { id, retentionDays, retentionDaysBefore } = organizationForm;
+      const retentionChanged = id !== undefined && retentionDays !== undefined && retentionDays !== retentionDaysBefore;
+      if (retentionChanged) {
+        // Shorter than before (or forever -> finite): say how many chats it reaches before it is saved.
+        const shorter = retentionDays !== 0 && (retentionDaysBefore === 0 || retentionDaysBefore === undefined || retentionDays < retentionDaysBefore);
+        if (shorter) {
+          const preview = await getOrganizationRetention(id, retentionDays);
+          const due = preview.preview?.due ?? 0;
+          const ok = await dialog.confirm({
+            title: `Shorten chat retention to ${describeRetention(retentionDays).replace("kept ", "")}?`,
+            message: due > 0
+              ? `${due} chat${due === 1 ? " is" : "s are"} already older than that. At the next sweep ${due === 1 ? "it" : "each"} will be summarised and ${due === 1 ? "its" : "their"} messages removed. The summaries stay; saved notes and documents are not affected. Chats on hold are skipped.`
+              : "No chat is older than that today. Chats will be summarised and their messages removed once they pass this age.",
+            confirmLabel: due > 0 ? `Shorten and archive ${due}` : "Shorten",
+            danger: due > 0,
+          });
+          if (!ok) { setSaving(false); return; }
+        }
+      }
+      if (id) await updateOrganization(id, input);
       else await createOrganization(input);
+      if (retentionChanged) await updateOrganizationRetention(id, { chat_retention_days: retentionDays });
       setOrganizationForm(null);
       await load();
     } catch (reason) {
@@ -359,7 +390,18 @@ export default function OrganizationAdministration({
                   }
                   onCancel={() => setOrganizationForm(null)}
                   onSubmit={saveOrganization}
-                />
+                >
+                  {organizationForm.id && organizationForm.retentionDays !== undefined && (
+                    <RetentionSettings
+                      key={organizationForm.id}
+                      organizationId={organizationForm.id}
+                      organizationName={organizationForm.name}
+                      value={organizationForm.retentionDays}
+                      onChange={(days) => setOrganizationForm((f) => (f ? { ...f, retentionDays: days } : f))}
+                      onHoldChanged={() => void load()}
+                    />
+                  )}
+                </Editor>
               )}
               {namespaceForm && (
                 <div ref={namespaceEditorRef} className="scroll-mt-4">
@@ -420,6 +462,7 @@ export default function OrganizationAdministration({
                                   ? ` · ${organization.description}`
                                   : ""}
                               </span>
+                              <RetentionSummary organization={organization} />
                             </span>
                           </button>
                           <button
@@ -434,6 +477,8 @@ export default function OrganizationAdministration({
                                 id: organization.id,
                                 name: organization.name,
                                 description: organization.description || "",
+                                retentionDays: organization.chat_retention_days,
+                                retentionDaysBefore: organization.chat_retention_days,
                               })
                             }
                             className="rounded-lg border border-brand-100 px-3 py-1.5 text-[12px] font-medium text-brand-700"
@@ -441,6 +486,7 @@ export default function OrganizationAdministration({
                             Edit org
                           </button>
                         </div>
+                        {isExpanded && <DocumentTypesPanel organization={organization} onChanged={onDocumentTypesChanged} />}
                         {isExpanded && (
                           <div className="grid gap-3 border-t border-brand-100 p-4 sm:grid-cols-2 lg:grid-cols-3">
                             {organization.namespaces.map((namespace) => {
@@ -626,6 +672,7 @@ function Editor({
   onDescription,
   onCancel,
   onSubmit,
+  children,
 }: {
   title: string;
   name: string;
@@ -635,6 +682,8 @@ function Editor({
   onDescription: (value: string) => void;
   onCancel: () => void;
   onSubmit: (event: FormEvent) => void;
+  /** extra sections between the fields and the Save button */
+  children?: ReactNode;
 }) {
   return (
     <form
@@ -670,9 +719,10 @@ function Editor({
           />
         </label>
       </div>
+      {children}
       <button
         disabled={saving}
-        className="mt-3 rounded-lg bg-brand-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+        className="mt-4 rounded-lg bg-brand-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
       >
         {saving ? "Saving…" : "Save"}
       </button>

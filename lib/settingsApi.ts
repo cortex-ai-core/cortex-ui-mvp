@@ -17,6 +17,43 @@ export type OrganizationRecord = {
   name: string;
   description?: string | null;
   namespaces: NamespaceRecord[];
+  /** chat retention: days since a thread's last message before it is summarised and purged; 0 keeps forever */
+  chat_retention_days?: number;
+  /** a tenant-wide hold: nothing is archived or deleted while true */
+  retention_hold?: boolean;
+  retention_hold_reason?: string | null;
+};
+
+// ---- chat retention (Settings API "Chat retention")
+export type RetentionCounts = { active: number; archived: number; held: number; due: number };
+export type RetentionNamespace = {
+  id: string;
+  name: string;
+  /** the namespace's own override, or null when it inherits the organization */
+  retention_days: number | null;
+  effective_days: number;
+  source: "namespace" | "organization" | "environment";
+};
+export type OrganizationRetention = {
+  organization: { id: string; name: string; chat_retention_days: number; retention_hold: boolean; retention_hold_reason: string | null; last_updated_at?: string | null };
+  default_days: number;
+  namespaces: RetentionNamespace[];
+  counts: RetentionCounts;
+  /** when asked with `previewDays`: how many chats would be due under that value */
+  preview?: { days: number; due: number };
+};
+export type HeldConversation = {
+  conversation_id: string;
+  title: string | null;
+  state: "active" | "archived";
+  namespace: string | null;
+  owner_email: string | null;
+  legal_hold_reason: string | null;
+  legal_hold_by: string | null;
+  legal_hold_at: string | null;
+};
+export type HoldResult = {
+  conversation: { conversation_id: string; title: string | null; state: "active" | "archived"; legal_hold: boolean; legal_hold_reason: string | null; legal_hold_by: string | null; legal_hold_at: string | null };
 };
 export type RoleRecord = {
   id: string;
@@ -109,6 +146,39 @@ export function updateOrganization(
   return request<{ organization: OrganizationRecord }>(
     `/api/settings/organizations/${id}`,
     { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export function getOrganizationRetention(organizationId: string, previewDays?: number) {
+  const q = previewDays !== undefined ? `?days=${encodeURIComponent(String(previewDays))}` : "";
+  return request<OrganizationRetention>(`/api/settings/organizations/${organizationId}/retention${q}`);
+}
+
+export function updateOrganizationRetention(
+  organizationId: string,
+  patch: { chat_retention_days?: number; retention_hold?: boolean; retention_hold_reason?: string },
+) {
+  return request<OrganizationRetention>(
+    `/api/settings/organizations/${organizationId}/retention`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export function listOrganizationHolds(organizationId: string) {
+  return request<{ holds: HeldConversation[] }>(`/api/settings/organizations/${organizationId}/holds`);
+}
+
+export function setConversationHold(conversationId: string, hold: boolean, reason?: string) {
+  return request<HoldResult>(
+    `/api/settings/conversations/${conversationId}/hold`,
+    { method: "POST", body: JSON.stringify({ hold, reason }) },
+  );
+}
+
+export function setNamespaceRetention(namespaceId: string, retentionDays: number | null) {
+  return request<{ namespace: RetentionNamespace }>(
+    `/api/settings/namespaces/${namespaceId}/retention`,
+    { method: "PATCH", body: JSON.stringify({ retention_days: retentionDays }) },
   );
 }
 

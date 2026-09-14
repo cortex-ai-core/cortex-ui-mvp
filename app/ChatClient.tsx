@@ -19,6 +19,8 @@ import {
   type ChatMessage,
 } from "@/lib/chatStore";
 import MessageBubble from "@/components/MessageBubble";
+import ArchiveSummary from "@/components/ArchiveSummary";
+import { Toast, useToast } from "@/components/Toast";
 import { sendChat } from "@/lib/sendChat";
 import DocumentsPanel, {
   type PendingUpload,
@@ -34,6 +36,7 @@ import PersonaAdministration from "@/components/settings/PersonaAdministration";
 import type { PersonaProvenance } from "@/lib/citations";
 import { useDialog } from "@/components/Dialog";
 import { useDensity } from "@/lib/useDensity";
+import type { DeleteOutcome, ClearOutcome } from "@/lib/chatStore";
 import {
   listDocuments,
   listDocumentTypes,
@@ -49,6 +52,8 @@ import {
   IconPlus,
   IconSend,
   IconTrash,
+  IconArchive,
+  IconSpinner,
   IconLock,
   IconUnlock,
   IconLogout,
@@ -107,6 +112,25 @@ type View =
   | "personas";
 
 /** "Talent Intelligence · v3" from the reply's persona provenance. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** One line for the notice after a delete: what went, what was kept, or why nothing happened. */
+function describeDelete(o: DeleteOutcome): string {
+  if (!o.deleted) return o.message;
+  const r = o.receipt;
+  if (!r) return "Deleted from this device.";
+  const parts = [`Deleted. ${plural(r.messages, "message")} removed.`];
+  if (r.memories_kept.length) parts.push(`${plural(r.memories_kept.length, "note")} saved from this chat ${r.memories_kept.length === 1 ? "was" : "were"} kept.`);
+  return parts.join(" ");
+}
+
+function describeClear(o: ClearOutcome): string {
+  const parts = [`Deleted ${plural(o.deleted, "chat")} (${plural(o.messages, "message")}).`];
+  if (o.memoriesKept) parts.push(`${plural(o.memoriesKept, "saved note")} ${o.memoriesKept === 1 ? "was" : "were"} kept.`);
+  if (o.held) parts.push(`${plural(o.held, "chat")} on legal hold ${o.held === 1 ? "was" : "were"} left in place.`);
+  return parts.join(" ");
+}
+
 function personaLabel(p: PersonaProvenance): string {
   if (!p.persona_key) return p.source === "default" ? "Default persona" : "No persona";
   const name = p.persona_key.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
@@ -154,8 +178,10 @@ export default function ChatClient({ user }: { user: any }) {
     loadSessionMessages,
     switchSession,
     deleteSession,
+    archiveSession,
     clearAllSessions,
     syncFromServer,
+    retention,
     appendMessageToLocal,
     appendAssistantMessage,
     startAssistantMessage,
@@ -177,6 +203,19 @@ export default function ChatClient({ user }: { user: any }) {
   const [privateMode, setPrivateMode] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // outcomes of an action just taken (delete, archive, clear): a 3 s toast, top right
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
+  // chats whose summary is being written right now (archiving takes several seconds)
+  const [archivingIds, setArchivingIds] = useState<Set<string>>(new Set());
+  const archiveChat = async (id: string) => {
+    setArchivingIds((prev) => new Set(prev).add(id));
+    try {
+      const outcome = await archiveSession(id);
+      showToast(outcome.archived ? "Archived. The summary is in your list under Archived." : outcome.message, outcome.archived ? "success" : "error");
+    } finally {
+      setArchivingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  };
 
   // Private chats live only in React state: never written to storage,
   // never listed under Previous chats, gone on refresh.
@@ -202,6 +241,10 @@ export default function ChatClient({ user }: { user: any }) {
   const sessionInitialized = useRef(false);
 
   const visibleMessages = privateMode ? privateMessages : messages;
+  // An archived thread has no messages any more; its summary record stands in and the composer is closed.
+  const currentMeta = sessionId ? conversationMeta[sessionId] : undefined;
+  const currentArchived = !privateMode && currentMeta?.state === "archived";
+  const currentArchiving = !privateMode && Boolean(sessionId && archivingIds.has(sessionId));
   const busy = isSending || privateSending;
 
   // -----------------------------------------------------------
@@ -653,6 +696,9 @@ export default function ChatClient({ user }: { user: any }) {
           // a thread synced from the server but not opened here yet has no cached messages
           count: msgs.length || meta?.count || 0,
           when: msgs[msgs.length - 1]?.createdAt ?? meta?.when,
+          state: meta?.state ?? "active",
+          archivedAt: meta?.archivedAt,
+          legalHold: Boolean(meta?.legalHold),
         };
       })
       .filter((p) => p.count > 0 || p.id === sessionId)
@@ -663,6 +709,8 @@ export default function ChatClient({ user }: { user: any }) {
         return key(b) - key(a);
       });
   }, [chatList, sessionId, messages, conversationMeta]);
+  const activePreviews = previews.filter((p) => p.state !== "archived");
+  const archivedPreviews = previews.filter((p) => p.state === "archived");
 
   const formatWhen = (ts?: number) => {
     if (!ts) return "";
@@ -705,6 +753,7 @@ export default function ChatClient({ user }: { user: any }) {
       data-density={density}
       className="flex h-screen w-full overflow-hidden bg-surface"
     >
+      <Toast toast={toast} onDismiss={dismissToast} />
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -839,7 +888,7 @@ export default function ChatClient({ user }: { user: any }) {
               </p>
             )}
 
-            {previews.map((p) => {
+            {activePreviews.map((p) => {
               const active =
                 !privateMode && p.id === sessionId && view === "chat";
               return (
@@ -866,34 +915,89 @@ export default function ChatClient({ user }: { user: any }) {
                       {p.title}
                     </span>
                     <span className="mt-0.5 text-[11px] text-white/45">
-                      {p.count === 0
-                        ? "Empty"
-                        : `${p.count} message${p.count === 1 ? "" : "s"}`}
-                      {p.when ? ` · ${formatWhen(p.when)}` : ""}
+                      {archivingIds.has(p.id)
+                        ? "Summarising…"
+                        : p.count === 0
+                          ? "Empty"
+                          : `${p.count} message${p.count === 1 ? "" : "s"}`}
+                      {!archivingIds.has(p.id) && p.when ? ` · ${formatWhen(p.when)}` : ""}
                     </span>
                   </button>
 
-                  {p.count > 0 && (
-                    <button
-                      onClick={async () => {
-                        const ok = await dialog.confirm({
-                          title: "Delete this chat?",
-                          message:
-                            "It will be removed from this device and from your saved conversations on the server.",
-                          confirmLabel: "Delete",
-                          danger: true,
-                        });
-                        if (ok) deleteSession(p.id);
-                      }}
-                      className="mr-1.5 rounded-lg p-1.5 text-white/40 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100 focus:opacity-100"
-                      aria-label="Delete chat"
-                    >
-                      <IconTrash size={14} />
-                    </button>
+                  {/* An active chat is archived from here (summary written, messages removed); it can be deleted once archived. */}
+                  {archivingIds.has(p.id) ? (
+                    <span className="mr-2 text-white/60" aria-label="Summarising this chat" role="status">
+                      <IconSpinner size={14} />
+                    </span>
+                  ) : (
+                    p.count > 0 && !p.legalHold && (
+                      <button
+                        onClick={async () => {
+                          const ok = await dialog.confirm({
+                            title: "Summarise and archive this chat?",
+                            message: `Cortéx writes a short summary of what was discussed and decided, then removes the messages. The summary stays in your list under Archived; the chat can't be reopened. This takes a few seconds.${retention?.days ? ` Chats are archived this way automatically ${retention.days} days after their last message.` : ""}`,
+                            confirmLabel: "Archive",
+                            danger: true,
+                          });
+                          if (!ok) return;
+                          void archiveChat(p.id);
+                        }}
+                        className="mr-1.5 rounded-lg p-1.5 text-white/40 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100 focus:opacity-100"
+                        aria-label="Summarise and archive chat"
+                        title="Summarise and archive"
+                      >
+                        <IconArchive size={14} />
+                      </button>
+                    )
                   )}
                 </div>
               );
             })}
+
+            {archivedPreviews.length > 0 && !privateMode && (
+              <>
+                <div className="mt-4 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                  Archived
+                </div>
+                {archivedPreviews.map((p) => {
+                  const active = p.id === sessionId && view === "chat";
+                  return (
+                    <div
+                      key={p.id}
+                      className={`group relative mb-0.5 flex items-center rounded-xl transition ${active ? "bg-white/12" : "hover:bg-white/8"}`}
+                    >
+                      <button
+                        onClick={() => { if (p.id !== sessionId) switchSession(p.id); setView("chat"); }}
+                        className="flex min-w-0 flex-1 flex-col px-3 py-2 text-left"
+                        title={p.title}
+                      >
+                        <span className={`truncate text-[13.5px] ${active ? "text-white/90" : "text-white/70"}`}>{p.title}</span>
+                        <span className="mt-0.5 text-[11px] text-white/40">
+                          Summary{p.archivedAt ? ` · ${formatWhen(p.archivedAt)}` : ""}{p.legalHold ? " · on hold" : ""}
+                        </span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const ok = await dialog.confirm({
+                            title: "Delete this archived chat?",
+                            message: "Its summary will be removed from your saved conversations. Notes Cortéx saved from it are kept.",
+                            confirmLabel: "Delete",
+                            danger: true,
+                          });
+                          if (!ok) return;
+                          const outcome = await deleteSession(p.id);
+                          showToast(describeDelete(outcome), outcome.deleted ? "success" : "error");
+                        }}
+                        className="mr-1.5 rounded-lg p-1.5 text-white/40 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100 focus:opacity-100"
+                        aria-label="Delete archived chat"
+                      >
+                        <IconTrash size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         </div>
 
@@ -1018,7 +1122,15 @@ export default function ChatClient({ user }: { user: any }) {
                   </div>
                 )}
 
-                {!privateMode && messages.length === 0 && (
+                {currentArchived && (
+                  <ArchiveSummary
+                    archive={currentMeta?.archive ?? null}
+                    archivedAt={currentMeta?.archivedAt}
+                    retentionDays={retention?.days ?? null}
+                  />
+                )}
+
+                {!privateMode && !currentArchived && messages.length === 0 && (
                   <div className="mt-8 flex flex-col items-center text-center sm:mt-16">
                     <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-900 text-xl font-bold text-white shadow-card">
                       C
@@ -1102,7 +1214,27 @@ export default function ChatClient({ user }: { user: any }) {
                   </div>
                 )}
 
+                {currentArchiving && (
+                  <div className="mb-3 flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-[13.5px] text-ink" role="status">
+                    <IconSpinner size={16} className="shrink-0 text-brand-700" />
+                    <span>Summarising this chat… Cortéx is writing the summary and will then remove the messages. This takes a few seconds.</span>
+                  </div>
+                )}
+
+                {currentArchived && (
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-[13.5px] text-ink">
+                    <span>This chat is archived and can&apos;t be continued.</span>
+                    <button
+                      onClick={() => { createNewSession(); focusComposer(); }}
+                      className="rounded-lg bg-brand-900 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-brand-800"
+                    >
+                      Start a new chat
+                    </button>
+                  </div>
+                )}
+
                 <div
+                  hidden={currentArchived || currentArchiving}
                   className={`rounded-2xl border bg-white shadow-card transition focus-within:ring-4 ${
                     privateMode
                       ? "border-brand-700 focus-within:ring-brand-700/15"
@@ -1289,12 +1421,6 @@ export default function ChatClient({ user }: { user: any }) {
             workspace={workspace}
             density={density}
             onDensityChange={setDensity}
-            documentTypes={documentTypes}
-            canManageDocumentTypes={canUploadPersistent}
-            onDocumentTypesChanged={() => {
-              fetchTypes();
-              fetchDocuments(true);
-            }}
             onClearHistory={async () => {
               const ok = await dialog.confirm({
                 title: "Clear chat history?",
@@ -1304,8 +1430,9 @@ export default function ChatClient({ user }: { user: any }) {
                 danger: true,
               });
               if (ok) {
-                clearAllSessions();
+                const outcome = await clearAllSessions();
                 setView("chat");
+                showToast(describeClear(outcome), outcome.held ? "info" : "success");
               }
             }}
             onSignOut={signOut}
@@ -1324,6 +1451,10 @@ export default function ChatClient({ user }: { user: any }) {
             currentOrganizationId={user?.organizationId ?? ""}
             currentNamespace={NAMESPACE}
             onBack={() => setView("settings")}
+            onDocumentTypesChanged={() => {
+              fetchTypes();
+              fetchDocuments(true);
+            }}
           />
         )}
 
