@@ -8,23 +8,33 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import type { ReactNode } from "react";
 import {
   addNamespaceUser,
   createNamespace,
   createOrganization,
   getNamespaceUsers,
   getOrganizations,
+  getPersonas,
   getUsers,
   removeNamespaceUser,
+  setNamespacePersona,
   updateNamespace,
   updateOrganization,
   type NamespaceRecord,
   type OrganizationRecord,
+  type PersonaRecord,
   type SettingsUser,
 } from "@/lib/settingsApi";
 import { BackToSettings } from "./shared";
 
-type OrganizationForm = { id?: string; name: string; description: string };
+import RetentionSettings, { RetentionSummary, describeRetention } from "@/components/settings/RetentionSettings";
+import DocumentTypesPanel from "@/components/settings/DocumentTypesPanel";
+import { getOrganizationRetention, updateOrganizationRetention } from "@/lib/settingsApi";
+import { useDialog } from "@/components/Dialog";
+
+/** retentionDays rides along when editing an existing organization; undefined = leave as is */
+type OrganizationForm = { id?: string; name: string; description: string; retentionDays?: number; retentionDaysBefore?: number };
 type NamespaceForm = {
   organizationId: string;
   id?: string;
@@ -41,13 +51,36 @@ export default function OrganizationAdministration({
   currentOrganizationId,
   currentNamespace,
   onBack,
+  onDocumentTypesChanged,
 }: {
   role: string;
   currentOrganizationId: string;
   currentNamespace: string;
   onBack: () => void;
+  /** the chat client refreshes the upload form's type menu */
+  onDocumentTypesChanged?: () => void;
 }) {
   const [organizations, setOrganizations] = useState<OrganizationRecord[]>([]);
+  // Personas for the namespace default select (spec 4.4). Loaded once;
+  // a failed load just hides the select.
+  const [personas, setPersonas] = useState<PersonaRecord[]>([]);
+  const [personaNotice, setPersonaNotice] = useState<{ namespaceId: string; text: string; error: boolean } | null>(null);
+  useEffect(() => {
+    getPersonas().then((r) => setPersonas(r.personas)).catch(() => setPersonas([]));
+  }, []);
+  async function changeNamespacePersona(namespace: NamespaceRecord, personaId: string | null) {
+    setPersonaNotice(null);
+    try {
+      const { namespace: saved } = await setNamespacePersona(namespace.id, personaId);
+      setOrganizations((previous) => previous.map((organization) => ({
+        ...organization,
+        namespaces: organization.namespaces.map((item) => item.id === namespace.id ? { ...item, default_persona_id: saved.default_persona?.id ?? null } : item),
+      })));
+      setPersonaNotice({ namespaceId: namespace.id, error: false, text: saved.default_persona ? `${saved.default_persona.name} is now the default for ${namespace.name}.` : `${namespace.name} now uses the built-in default.` });
+    } catch (reason) {
+      setPersonaNotice({ namespaceId: namespace.id, error: true, text: reason instanceof Error ? reason.message : "Unable to set the default persona." });
+    }
+  }
   const [allUsers, setAllUsers] = useState<SettingsUser[]>([]);
   const [members, setMembers] = useState<SettingsUser[]>([]);
   const [selected, setSelected] = useState<Selection | null>(null);
@@ -120,6 +153,8 @@ export default function OrganizationAdministration({
     }
   }
 
+  const dialog = useDialog();
+
   async function saveOrganization(event: FormEvent) {
     event.preventDefault();
     if (!organizationForm) return;
@@ -130,9 +165,28 @@ export default function OrganizationAdministration({
         name: organizationForm.name,
         description: organizationForm.description,
       };
-      if (organizationForm.id)
-        await updateOrganization(organizationForm.id, input);
+      const { id, retentionDays, retentionDaysBefore } = organizationForm;
+      const retentionChanged = id !== undefined && retentionDays !== undefined && retentionDays !== retentionDaysBefore;
+      if (retentionChanged) {
+        // Shorter than before (or forever -> finite): say how many chats it reaches before it is saved.
+        const shorter = retentionDays !== 0 && (retentionDaysBefore === 0 || retentionDaysBefore === undefined || retentionDays < retentionDaysBefore);
+        if (shorter) {
+          const preview = await getOrganizationRetention(id, retentionDays);
+          const due = preview.preview?.due ?? 0;
+          const ok = await dialog.confirm({
+            title: `Shorten chat retention to ${describeRetention(retentionDays).replace("kept ", "")}?`,
+            message: due > 0
+              ? `${due} chat${due === 1 ? " is" : "s are"} already older than that. At the next sweep ${due === 1 ? "it" : "each"} will be summarised and ${due === 1 ? "its" : "their"} messages removed. The summaries stay; saved notes and documents are not affected. Chats on hold are skipped.`
+              : "No chat is older than that today. Chats will be summarised and their messages removed once they pass this age.",
+            confirmLabel: due > 0 ? `Shorten and archive ${due}` : "Shorten",
+            danger: due > 0,
+          });
+          if (!ok) { setSaving(false); return; }
+        }
+      }
+      if (id) await updateOrganization(id, input);
       else await createOrganization(input);
+      if (retentionChanged) await updateOrganizationRetention(id, { chat_retention_days: retentionDays });
       setOrganizationForm(null);
       await load();
     } catch (reason) {
@@ -336,7 +390,18 @@ export default function OrganizationAdministration({
                   }
                   onCancel={() => setOrganizationForm(null)}
                   onSubmit={saveOrganization}
-                />
+                >
+                  {organizationForm.id && organizationForm.retentionDays !== undefined && (
+                    <RetentionSettings
+                      key={organizationForm.id}
+                      organizationId={organizationForm.id}
+                      organizationName={organizationForm.name}
+                      value={organizationForm.retentionDays}
+                      onChange={(days) => setOrganizationForm((f) => (f ? { ...f, retentionDays: days } : f))}
+                      onHoldChanged={() => void load()}
+                    />
+                  )}
+                </Editor>
               )}
               {namespaceForm && (
                 <div ref={namespaceEditorRef} className="scroll-mt-4">
@@ -397,6 +462,7 @@ export default function OrganizationAdministration({
                                   ? ` · ${organization.description}`
                                   : ""}
                               </span>
+                              <RetentionSummary organization={organization} />
                             </span>
                           </button>
                           <button
@@ -411,6 +477,8 @@ export default function OrganizationAdministration({
                                 id: organization.id,
                                 name: organization.name,
                                 description: organization.description || "",
+                                retentionDays: organization.chat_retention_days,
+                                retentionDaysBefore: organization.chat_retention_days,
                               })
                             }
                             className="rounded-lg border border-brand-100 px-3 py-1.5 text-[12px] font-medium text-brand-700"
@@ -418,6 +486,7 @@ export default function OrganizationAdministration({
                             Edit org
                           </button>
                         </div>
+                        {isExpanded && <DocumentTypesPanel organization={organization} onChanged={onDocumentTypesChanged} />}
                         {isExpanded && (
                           <div className="grid gap-3 border-t border-brand-100 p-4 sm:grid-cols-2 lg:grid-cols-3">
                             {organization.namespaces.map((namespace) => {
@@ -472,6 +541,27 @@ export default function OrganizationAdministration({
                                   >
                                     Edit namespace
                                   </button>
+                                  {personas.length > 0 && (
+                                    <label className="mt-3 block text-[11px] font-medium text-ink-muted">
+                                      Default persona
+                                      <select
+                                        aria-label={`Default persona for ${namespace.name}`}
+                                        value={namespace.default_persona_id || ""}
+                                        onChange={(event) => void changeNamespacePersona(namespace, event.target.value || null)}
+                                        className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-2 py-1.5 text-[12.5px] font-normal text-ink"
+                                      >
+                                        <option value="">Built-in default</option>
+                                        {personas
+                                          .filter((p) => (p.is_active || p.id === namespace.default_persona_id) && (p.shared || p.organization?.id === organization.id))
+                                          .map((p) => (
+                                            <option key={p.id} value={p.id}>{p.name}{p.is_active ? "" : " (inactive)"}</option>
+                                          ))}
+                                      </select>
+                                      {personaNotice?.namespaceId === namespace.id && (
+                                        <span role="status" className={`mt-1 block font-normal ${personaNotice.error ? "text-red-700" : "text-emerald-700"}`}>{personaNotice.text}</span>
+                                      )}
+                                    </label>
+                                  )}
                                 </div>
                               );
                             })}
@@ -582,6 +672,7 @@ function Editor({
   onDescription,
   onCancel,
   onSubmit,
+  children,
 }: {
   title: string;
   name: string;
@@ -591,6 +682,8 @@ function Editor({
   onDescription: (value: string) => void;
   onCancel: () => void;
   onSubmit: (event: FormEvent) => void;
+  /** extra sections between the fields and the Save button */
+  children?: ReactNode;
 }) {
   return (
     <form
@@ -626,9 +719,10 @@ function Editor({
           />
         </label>
       </div>
+      {children}
       <button
         disabled={saving}
-        className="mt-3 rounded-lg bg-brand-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+        className="mt-4 rounded-lg bg-brand-900 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
       >
         {saving ? "Saving…" : "Save"}
       </button>

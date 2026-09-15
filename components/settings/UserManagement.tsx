@@ -8,12 +8,15 @@ import {
   type FormEvent,
 } from "react";
 import {
+  assignUserPersona,
   createUser,
   getOrganizations,
+  getPersonas,
   getRoles,
   getUsers,
   updateUser,
   type OrganizationRecord,
+  type PersonaRecord,
   type RoleRecord,
   type SettingsUser,
 } from "@/lib/settingsApi";
@@ -26,6 +29,8 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
   const [users, setUsers] = useState<SettingsUser[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationRecord[]>([]);
   const [roles, setRoles] = useState<RoleRecord[]>([]);
+  const [personas, setPersonas] = useState<PersonaRecord[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -39,13 +44,17 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
   });
 
   const load = useCallback(() => {
-    return Promise.all([getUsers(), getOrganizations(), getRoles()])
+    return Promise.all([
+      getUsers(), getOrganizations(), getRoles(),
+      canPersonalize ? getPersonas().catch(() => ({ personas: [] as PersonaRecord[] })) : Promise.resolve({ personas: [] as PersonaRecord[] }),
+    ])
       .then(
-        ([userResult, organizationResult, roleResult]) => {
+        ([userResult, organizationResult, roleResult, personaResult]) => {
           setError(null);
           setUsers(userResult.users);
           setOrganizations(organizationResult.organizations);
           setRoles(roleResult.roles);
+          setPersonas(personaResult.personas);
         },
       )
       .catch((reason: unknown) => {
@@ -58,7 +67,28 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
       .finally(() => {
         setLoading(false);
       });
-  }, []);
+  }, [canPersonalize]);
+
+  // Assigning a persona writes one column; the reply echoes the user's
+  // role and namespaces so the admin can see nothing else changed.
+  async function changePersona(user: SettingsUser, personaId: string | null) {
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await assignUserPersona(user.id, personaId);
+      const echoed = result.user;
+      setNotice(
+        `${result.persona ? `${result.persona.name} assigned to` : "Persona cleared for"} ${echoed.email}. ` +
+        `Role ${echoed.role?.name || "unchanged"} and namespaces ${echoed.namespaces.map((n) => n.name).join(", ") || "unchanged"} were not touched.`,
+      );
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to assign persona.");
+    } finally {
+      setSaving(false);
+    }
+  }
   useEffect(() => {
     void load();
   }, [load]);
@@ -134,6 +164,11 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
         {error && (
           <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-[13.5px] text-red-700">
             {error}
+          </div>
+        )}
+        {notice && (
+          <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-[13.5px] text-emerald-800">
+            {notice}
           </div>
         )}
         {showCreate && (
@@ -255,7 +290,7 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
           </div>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-brand-100 bg-white shadow-card">
-            <table className="w-full min-w-[820px] text-left text-[13.5px]">
+            <table className="w-full min-w-[1040px] text-left text-[13.5px]">
               <thead className="bg-brand-50 text-[11px] uppercase tracking-[0.08em] text-ink-muted">
                 <tr>
                   <th className="px-5 py-3">User</th>
@@ -263,6 +298,7 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                   <th className="px-5 py-3">Namespaces</th>
                   <th className="px-5 py-3">Role</th>
                   <th className="px-5 py-3">Status</th>
+                  {canPersonalize && <th className="px-5 py-3">Persona</th>}
                   {canPersonalize && <th className="px-5 py-3">Personalization</th>}
                 </tr>
               </thead>
@@ -306,9 +342,25 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                       </button>
                     </td>
                     {canPersonalize && <td className="px-5 py-4">
+                      <select
+                        aria-label={`Persona for ${user.email}`}
+                        disabled={saving || (role !== "super_admin" && user.role?.name === "super_admin")}
+                        value={user.persona?.id || ""}
+                        onChange={(event) => void changePersona(user, event.target.value || null)}
+                        className="whitespace-nowrap rounded-lg border border-brand-100 px-2.5 py-1.5 disabled:opacity-50"
+                      >
+                        <option value="">Namespace default</option>
+                        {personas
+                          .filter((p) => (p.is_active || p.id === user.persona?.id) && (p.shared || p.organization?.id === user.organization?.id))
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}{p.is_active ? "" : " (inactive)"}</option>
+                          ))}
+                      </select>
+                    </td>}
+                    {canPersonalize && <td className="px-5 py-4">
                       <button onClick={() => setPersonalizationUser(user)}
                         disabled={role !== "super_admin" && user.role?.name === "super_admin"}
-                        className="rounded-lg border border-brand-100 px-3 py-2 text-sm font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50">
+                        className="whitespace-nowrap rounded-lg border border-brand-100 px-3 py-2 text-sm font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50">
                         Edit personalization
                       </button>
                     </td>}

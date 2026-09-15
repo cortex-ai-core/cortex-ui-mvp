@@ -5,7 +5,8 @@ export type SettingsDestinationView =
   | "user-settings"
   | "user-management"
   | "organization-administration"
-  | "role-management";
+  | "role-management"
+  | "personas";
 
 export default function SettingsLanding({
   onNavigate,
@@ -31,29 +32,39 @@ export default function SettingsLanding({
         <div className="grid gap-4 sm:grid-cols-2">
           <SettingsDestination
             title="User Settings"
-            description="Personalize how Cortéx responds and manage your document and privacy preferences."
-            detail="Display · Response Style · Document Types · Privacy and Data"
+            description="Your account, how Cortéx answers you, and what happens to your chats."
+            detail="Account · Display · Answer length · Personalization · Privacy and Data"
             icon={<IconSettings size={19} />}
             onClick={() => onNavigate("user-settings")}
           />
           {canManageSettings && <>
           <SettingsDestination
             title="User Management"
-            description="View the people who have access to this Cortéx workspace."
+            description="The people in your organization: who they are, what they may do, and which namespaces and persona they have."
+            detail="People · Roles · Namespaces · Personas"
             icon={<span className="text-lg font-semibold">U</span>}
             onClick={() => onNavigate("user-management")}
           />
           <SettingsDestination
             title="Organization Administration"
-            description="Browse organizations and the namespaces contained within them."
+            description="Organizations and their namespaces, who belongs to each, and the organization-wide settings for chats and documents."
+            detail="Organizations · Namespaces · Members · Chat retention · Document types · Default personas"
             icon={<span className="text-lg font-semibold">O</span>}
             onClick={() => onNavigate("organization-administration")}
           />
           <SettingsDestination
             title="Role Management"
-            description="View your role or manage role assignments for your organization."
+            description="What each role may do, and which role each person holds."
+            detail="Roles · Permissions · Assignments"
             icon={<IconLock size={18} />}
             onClick={() => onNavigate("role-management")}
+          />
+          <SettingsDestination
+            title="Personas"
+            description="Define how Cortéx sounds and works for each audience, version the rules, and see what any user will get."
+            detail="Personas · Rules and versions · Preview"
+            icon={<span className="text-lg font-semibold">P</span>}
+            onClick={() => onNavigate("personas")}
           />
           </>}
         </div>

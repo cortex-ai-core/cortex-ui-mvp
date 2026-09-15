@@ -1,17 +1,59 @@
-import type { ToneMode } from "./chatStore";
 import { BACKEND, ApiError } from "./documentsApi";
+
+/** A user's own answer length, or a persona's default: concise, standard or detailed. */
+export type PersonaLength = "concise" | "standard" | "detailed";
+export const PERSONA_LENGTHS: PersonaLength[] = ["concise", "standard", "detailed"];
 
 export type NamespaceRecord = {
   id: string;
   name: string;
   description?: string | null;
   organization_id?: string;
+  /** persona for members with no assignment of their own; null = built-in default */
+  default_persona_id?: string | null;
 };
 export type OrganizationRecord = {
   id: string;
   name: string;
   description?: string | null;
   namespaces: NamespaceRecord[];
+  /** chat retention: days since a thread's last message before it is summarised and purged; 0 keeps forever */
+  chat_retention_days?: number;
+  /** a tenant-wide hold: nothing is archived or deleted while true */
+  retention_hold?: boolean;
+  retention_hold_reason?: string | null;
+};
+
+// ---- chat retention (Settings API "Chat retention")
+export type RetentionCounts = { active: number; archived: number; held: number; due: number };
+export type RetentionNamespace = {
+  id: string;
+  name: string;
+  /** the namespace's own override, or null when it inherits the organization */
+  retention_days: number | null;
+  effective_days: number;
+  source: "namespace" | "organization" | "environment";
+};
+export type OrganizationRetention = {
+  organization: { id: string; name: string; chat_retention_days: number; retention_hold: boolean; retention_hold_reason: string | null; last_updated_at?: string | null };
+  default_days: number;
+  namespaces: RetentionNamespace[];
+  counts: RetentionCounts;
+  /** when asked with `previewDays`: how many chats would be due under that value */
+  preview?: { days: number; due: number };
+};
+export type HeldConversation = {
+  conversation_id: string;
+  title: string | null;
+  state: "active" | "archived";
+  namespace: string | null;
+  owner_email: string | null;
+  legal_hold_reason: string | null;
+  legal_hold_by: string | null;
+  legal_hold_at: string | null;
+};
+export type HoldResult = {
+  conversation: { conversation_id: string; title: string | null; state: "active" | "archived"; legal_hold: boolean; legal_hold_reason: string | null; legal_hold_by: string | null; legal_hold_at: string | null };
 };
 export type RoleRecord = {
   id: string;
@@ -26,7 +68,23 @@ export type SettingsUser = {
   role: RoleRecord | null;
   organization: Pick<OrganizationRecord, "id" | "name">;
   namespaces: NamespaceRecord[];
+  /** the persona assigned to this user, or null for the namespace default */
+  persona?: PersonaSummary | null;
 };
+
+export type PersonaSummary = { id: string; key: string; name: string };
+
+/** A request the server refused with a list of validation errors. */
+export class ValidationError extends ApiError {
+  errors: string[];
+  warnings: string[];
+  constructor(message: string, status: number, errors: string[], warnings: string[] = []) {
+    super(message, status);
+    this.name = "ValidationError";
+    this.errors = errors;
+    this.warnings = warnings;
+  }
+}
 
 function authToken() {
   try {
@@ -47,11 +105,12 @@ async function request<T>(path: string, init: RequestInit = {}) {
   });
   const body =
     response.status === 204 ? {} : await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new ApiError(
-      body?.error || `Request failed (${response.status})`,
-      response.status,
-    );
+  if (!response.ok) {
+    const message = body?.error || `Request failed (${response.status})`;
+    if (Array.isArray(body?.errors))
+      throw new ValidationError(message, response.status, body.errors, Array.isArray(body?.warnings) ? body.warnings : []);
+    throw new ApiError(message, response.status);
+  }
   return body as T;
 }
 
@@ -87,6 +146,39 @@ export function updateOrganization(
   return request<{ organization: OrganizationRecord }>(
     `/api/settings/organizations/${id}`,
     { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export function getOrganizationRetention(organizationId: string, previewDays?: number) {
+  const q = previewDays !== undefined ? `?days=${encodeURIComponent(String(previewDays))}` : "";
+  return request<OrganizationRetention>(`/api/settings/organizations/${organizationId}/retention${q}`);
+}
+
+export function updateOrganizationRetention(
+  organizationId: string,
+  patch: { chat_retention_days?: number; retention_hold?: boolean; retention_hold_reason?: string },
+) {
+  return request<OrganizationRetention>(
+    `/api/settings/organizations/${organizationId}/retention`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+export function listOrganizationHolds(organizationId: string) {
+  return request<{ holds: HeldConversation[] }>(`/api/settings/organizations/${organizationId}/holds`);
+}
+
+export function setConversationHold(conversationId: string, hold: boolean, reason?: string) {
+  return request<HoldResult>(
+    `/api/settings/conversations/${conversationId}/hold`,
+    { method: "POST", body: JSON.stringify({ hold, reason }) },
+  );
+}
+
+export function setNamespaceRetention(namespaceId: string, retentionDays: number | null) {
+  return request<{ namespace: RetentionNamespace }>(
+    `/api/settings/namespaces/${namespaceId}/retention`,
+    { method: "PATCH", body: JSON.stringify({ retention_days: retentionDays }) },
   );
 }
 
@@ -154,15 +246,20 @@ export function replaceUserNamespaces(id: string, namespaceIds: string[]) {
   );
 }
 
-export type UserPreferences = { response_style: ToneMode; personalization: string };
+export type UserPreferences = {
+  /** the user's own answer length; null lets the persona decide */
+  response_length: PersonaLength | null;
+  personalization: string;
+  persona_id?: string | null;
+};
 
 export const getUserPreferences = () =>
   request<{ preferences: UserPreferences }>("/api/settings/user/preferences");
 
-export const saveUserPreferences = (responseStyle: ToneMode) =>
+export const saveUserPreferences = (responseLength: PersonaLength | null) =>
   request<{ preferences: UserPreferences }>("/api/settings/user/preferences", {
     method: "PATCH",
-    body: JSON.stringify({ response_style: responseStyle }),
+    body: JSON.stringify({ response_length: responseLength }),
   });
 
 export const getPersonalization = async () => {
@@ -186,3 +283,98 @@ export const saveUserPersonalization = (userId: string, personalization: string)
   request<{ personalization: string }>(`/api/settings/users/${encodeURIComponent(userId)}/personalization`, {
     method: "PATCH", body: JSON.stringify({ personalization }),
   });
+
+// ---------------------------------------------------------------
+// Personas and PCL (spec 4.4). Rules live as an append-only version
+// history; saving a new version validates first and inserts nothing on
+// failure, which arrives here as a ValidationError with its errors.
+// ---------------------------------------------------------------
+export const PERSONA_LIST_SECTIONS = [
+  "operating_instructions",
+  "evaluation_rules",
+  "evidence_requirements",
+  "decision_rules",
+  "formatting",
+  "output_structure",
+  "workflow",
+  "domain_instructions",
+  "required",
+  "prohibited",
+] as const;
+export type PersonaListSection = (typeof PERSONA_LIST_SECTIONS)[number];
+export type PersonaConfiguration = Partial<Record<PersonaListSection, string[]>> & {
+  schema?: 1;
+  identity?: { text?: string };
+  response?: { length?: PersonaLength };
+  terminology?: { prefer?: Record<string, string>; protect?: string[] };
+};
+export type PersonaVersion = {
+  id: string;
+  version: number;
+  configuration: PersonaConfiguration;
+  created_by: string | null;
+  created_at: string;
+};
+export type PersonaRecord = PersonaSummary & {
+  description: string | null;
+  is_active: boolean;
+  shared: boolean;
+  organization: { id: string; name: string } | null;
+  created_at: string;
+  updated_at: string;
+  current_version: { version: number; created_by: string | null; created_at: string } | null;
+  users: number;
+  namespaces: number;
+};
+export type PersonaPreview = {
+  user: { id: string; email: string; role: string | null; organization: { id: string; name: string } | null; namespace: NamespaceRecord | null };
+  source: "resolved" | "default";
+  reason: string | null;
+  persona: PersonaSummary | null;
+  persona_source: "user" | "namespace" | "none";
+  version: number | null;
+  length: PersonaLength | null;
+  length_source: "user" | "persona" | "none";
+  personalization: string;
+  rendered: { persona?: string | null; structureRules?: string | null; task?: string | null; rules?: string | null; terminology?: string | null; personalization?: string | null } | null;
+};
+
+export const getPersonas = () =>
+  request<{ personas: PersonaRecord[] }>("/api/settings/personas");
+
+export const createPersona = (input: { key: string; name: string; description?: string; configuration?: PersonaConfiguration; shared?: boolean }) =>
+  request<{ persona: PersonaRecord; version: PersonaVersion; warnings: string[] }>("/api/settings/personas", {
+    method: "POST", body: JSON.stringify(input),
+  });
+
+export const updatePersona = (id: string, patch: { name?: string; description?: string }) =>
+  request<{ persona: PersonaRecord }>(`/api/settings/personas/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(patch),
+  });
+
+export const getPersonaVersions = (id: string) =>
+  request<{ persona: PersonaRecord; versions: PersonaVersion[] }>(`/api/settings/personas/${encodeURIComponent(id)}/versions`);
+
+export const savePersonaVersion = (id: string, configuration: PersonaConfiguration) =>
+  request<{ persona: PersonaRecord; version: PersonaVersion; warnings: string[] }>(`/api/settings/personas/${encodeURIComponent(id)}/versions`, {
+    method: "POST", body: JSON.stringify({ configuration }),
+  });
+
+export const activatePersona = (id: string) =>
+  request<{ persona: PersonaRecord }>(`/api/settings/personas/${encodeURIComponent(id)}/activate`, { method: "POST", body: "{}" });
+
+export const deactivatePersona = (id: string) =>
+  request<{ persona: PersonaRecord; namespaces?: NamespaceRecord[] }>(`/api/settings/personas/${encodeURIComponent(id)}/deactivate`, { method: "POST", body: "{}" });
+
+export const assignUserPersona = (userId: string, personaId: string | null) =>
+  request<{ user: SettingsUser; persona: PersonaSummary | null }>(`/api/settings/users/${encodeURIComponent(userId)}/persona`, {
+    method: "PATCH", body: JSON.stringify({ persona_id: personaId }),
+  });
+
+export const setNamespacePersona = (namespaceId: string, personaId: string | null) =>
+  request<{ namespace: NamespaceRecord & { default_persona: PersonaSummary | null } }>(`/api/settings/namespaces/${encodeURIComponent(namespaceId)}/persona`, {
+    method: "PATCH", body: JSON.stringify({ persona_id: personaId }),
+  });
+
+export const previewPersona = (userId: string, namespaceId?: string) =>
+  request<PersonaPreview>(`/api/settings/personas/preview?userId=${encodeURIComponent(userId)}${namespaceId ? `&namespaceId=${encodeURIComponent(namespaceId)}` : ""}`);

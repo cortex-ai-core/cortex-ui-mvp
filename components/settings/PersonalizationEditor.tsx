@@ -60,7 +60,8 @@ export default function PersonalizationEditor({ targetUserId, onClose }: {
     <div className="space-y-3">
       <p className="text-[13.5px] text-ink-muted">
         Tell Cortéx what it should know about you and how you’d like it to respond.
-        These notes are saved to your account but are not sent to the AI or applied to chat responses yet.
+        These notes go with every message you send and shape how answers read.
+        They never change which documents Cortéx may use or what those documents say.
         Clear this field and save to remove them.
       </p>
       {targetUserId && <p className="text-sm text-ink-muted">This user can see and edit these preferences in their own settings.</p>}

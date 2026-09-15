@@ -33,9 +33,11 @@ export type DocumentRow = {
   chunk_count?: number;
 };
 
+/** A document category. One list per organization, shared by every namespace (before migration 0014: per namespace). */
 export type DocumentType = {
   id: string;
-  namespace_id: string;
+  organization_id?: string;
+  namespace_id?: string;
   name: string;
   description: string | null;
   sort_order: number;
@@ -168,20 +170,23 @@ export function uploadDocument(
 }
 
 // ---------------------------------------------------------------- types
-export function listDocumentTypes() {
-  return request<{ types: DocumentType[] }>("/api/document-types");
+// `organizationId` is for a super admin working on another organization; omitted = the caller's own.
+const orgQuery = (organizationId?: string) => (organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : "");
+
+export function listDocumentTypes(organizationId?: string) {
+  return request<{ types: DocumentType[]; scope?: "organization" | "namespace" }>(`/api/document-types${orgQuery(organizationId)}`);
 }
 
-export function createDocumentType(input: { name: string; description?: string }) {
-  return request<{ type: DocumentType }>("/api/document-types", { method: "POST", body: JSON.stringify(input) });
+export function createDocumentType(input: { name: string; description?: string }, organizationId?: string) {
+  return request<{ type: DocumentType }>("/api/document-types", { method: "POST", body: JSON.stringify({ ...input, organizationId }) });
 }
 
-export function updateDocumentType(id: string, patch: { name?: string; description?: string; sort_order?: number }) {
-  return request<{ type: DocumentType }>(`/api/document-types/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+export function updateDocumentType(id: string, patch: { name?: string; description?: string; sort_order?: number }, organizationId?: string) {
+  return request<{ type: DocumentType }>(`/api/document-types/${id}`, { method: "PATCH", body: JSON.stringify({ ...patch, organizationId }) });
 }
 
-export function deleteDocumentType(id: string) {
-  return request<{ deleted: boolean }>(`/api/document-types/${id}`, { method: "DELETE" });
+export function deleteDocumentType(id: string, organizationId?: string) {
+  return request<{ deleted: boolean }>(`/api/document-types/${id}${orgQuery(organizationId)}`, { method: "DELETE" });
 }
 
 export function formatBytes(n: number | null | undefined) {

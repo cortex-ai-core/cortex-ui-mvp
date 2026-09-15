@@ -14,12 +14,18 @@ type Props = {
   types: DocumentType[];
   canManage: boolean;
   onChanged: () => void;
+  /** the organization whose list this is; a super admin may pass another organization's id */
+  organizationId?: string;
+  /** render without the outer card, e.g. inside an organization card */
+  embedded?: boolean;
 };
 
 export default function DocumentTypesSettings({
   types,
   canManage,
   onChanged,
+  organizationId,
+  embedded = false,
 }: Props) {
   const dialog = useDialog();
   const [name, setName] = useState("");
@@ -40,7 +46,7 @@ export default function DocumentTypesSettings({
       await createDocumentType({
         name: name.trim(),
         description: description.trim() || undefined,
-      });
+      }, organizationId);
       setName("");
       setDescription("");
       onChanged();
@@ -61,7 +67,7 @@ export default function DocumentTypesSettings({
       await updateDocumentType(editing.id, {
         name: editing.name.trim(),
         description: editing.description.trim(),
-      });
+      }, organizationId);
       setEditing(null);
       onChanged();
     } catch (e: unknown) {
@@ -84,7 +90,7 @@ export default function DocumentTypesSettings({
     setBusy(t.id);
     setError(null);
     try {
-      await deleteDocumentType(t.id);
+      await deleteDocumentType(t.id, organizationId);
       onChanged();
     } catch (e: unknown) {
       setError(
@@ -99,13 +105,17 @@ export default function DocumentTypesSettings({
     "h-9 rounded-lg border border-brand-100 bg-white px-3 text-[13.5px] text-ink outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15";
 
   return (
-    <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-card">
-      <h2 className="text-[15px] font-semibold text-brand-900">
-        Document types
-      </h2>
-      <p className="mt-1 text-[13.5px] text-ink-muted">
-        Categories you can assign when uploading. Each workspace keeps its own
-        list.
+    <section className={embedded ? "" : "rounded-2xl border border-brand-100 bg-white p-6 shadow-card"}>
+      {embedded ? (
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-brand-600">Document types</span>
+      ) : (
+        <h2 className="text-[15px] font-semibold text-brand-900">
+          Document types
+        </h2>
+      )}
+      <p className={`mt-1 text-ink-muted ${embedded ? "text-[12px]" : "text-[13.5px]"}`}>
+        Categories anyone in the organization can assign when uploading a
+        document. One list for the whole organization, every namespace.
       </p>
 
       {error && (

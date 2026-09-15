@@ -7,9 +7,32 @@ import {
   listConversations,
   getConversation,
   deleteConversation,
+  archiveConversationNow,
   type ConversationRow,
+  type ConversationDetail,
   type ServerMessage,
+  type PurgeReceipt,
+  type ArchiveRecord,
+  type RetentionInfo,
 } from "@/lib/conversationsApi";
+
+/** Outcome of archiving a chat early: its summary, or why it was refused. */
+export type ArchiveOutcome =
+  | { archived: true; archive: ArchiveRecord | null }
+  | { archived: false; message: string };
+
+/** Outcome of deleting one chat: gone (with the server's receipt when it had one), or refused by a hold. */
+export type DeleteOutcome =
+  | { deleted: true; receipt: PurgeReceipt | null }
+  | { deleted: false; held: true; message: string };
+
+/** Outcome of clearing every chat: totals over the receipts, and how many were left because of a hold. */
+export type ClearOutcome = {
+  deleted: number;
+  held: number;
+  messages: number;
+  memoriesKept: number;
+};
 
 export type ChatMessage = {
   id: string;
@@ -21,24 +44,18 @@ export type ChatMessage = {
   createdAt?: number;
 };
 
-export type ToneMode =
-  | "neutral"
-  | "king"
-  | "ceo"
-  | "advisory"
-  | "recruiting"
-  | "cybersecurity"
-  | "datamanagement"
-  | "ventures";
-
 /** What the server knows about a thread, kept so the sidebar can list threads not yet loaded here. */
 export type ConversationMeta = {
   title: string | null;
   count: number;
   when?: number;
+  /** "archived": summarised by retention, messages gone, read-only */
+  state?: "active" | "archived";
+  archivedAt?: number;
+  legalHold?: boolean;
+  /** the summary record, once the thread has been opened here */
+  archive?: ArchiveRecord | null;
 };
-
-const TONE_KEY = "cortex_tone_mode";
 
 /**
  * Local storage is per browser, not per login, so every key below is
@@ -175,11 +192,16 @@ function fromServer(m: ServerMessage): ChatMessage {
   };
 }
 
-function metaFrom(row: ConversationRow): ConversationMeta {
+function metaFrom(row: ConversationRow | ConversationDetail): ConversationMeta {
+  const state = row.state ?? (row.archived_at ? "archived" : "active");
   return {
     title: row.title,
     count: row.message_count,
     when: row.last_message_at ? Date.parse(row.last_message_at) : undefined,
+    state,
+    archivedAt: row.archived_at ? Date.parse(row.archived_at) : undefined,
+    legalHold: Boolean(row.legal_hold),
+    ...("archive" in row && row.archive !== undefined ? { archive: row.archive } : {}),
   };
 }
 
@@ -195,6 +217,8 @@ export function useChatStore() {
   const [isSending, setIsSending] = useState(false);
   // server metadata keyed by *local* session id
   const [conversationMeta, setConversationMeta] = useState<Record<string, ConversationMeta>>({});
+  // what the organization does with these chats (from the list route); null until synced
+  const [retention, setRetention] = useState<RetentionInfo | null>(null);
 
   const sessionIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -203,20 +227,6 @@ export function useChatStore() {
 
   const lockInput = useCallback(() => setIsSending(true), []);
   const unlockInput = useCallback(() => setIsSending(false), []);
-
-  // -------------------------------------------------------------
-  // TONE MODE
-  // -------------------------------------------------------------
-  const [toneMode, setToneMode] = useState<ToneMode>(() => {
-    if (typeof window === "undefined") return "neutral";
-    return (localStorage.getItem(TONE_KEY) as ToneMode) || "neutral";
-  });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(TONE_KEY, toneMode);
-    }
-  }, [toneMode]);
 
   // -------------------------------------------------------------
   // SERVER SYNC
@@ -232,7 +242,8 @@ export function useChatStore() {
     if (!conversationId) return;
     try {
       const detail = await getConversation(conversationId);
-      const msgs = dedupeMessages(detail.messages.map(fromServer));
+      // an archived thread has no messages any more: the cache follows, the summary stands in
+      const msgs = detail.state === "archived" ? [] : dedupeMessages(detail.messages.map(fromServer));
       saveChatLocal(id, msgs);
       setConversationMeta((prev) => ({ ...prev, [id]: metaFrom(detail) }));
       if (sessionIdRef.current === id) {
@@ -268,7 +279,9 @@ export function useChatStore() {
   const syncFromServer = useCallback(async () => {
     let rows: ConversationRow[];
     try {
-      rows = (await listConversations({ limit: SYNC_LIMIT })).conversations;
+      const res = await listConversations({ state: "all", limit: SYNC_LIMIT });
+      rows = res.conversations;
+      setRetention(res.retention ?? null);
     } catch {
       return;
     }
@@ -286,6 +299,11 @@ export function useChatStore() {
         list.push(local);
         localStorage.setItem(sessionKey(local), JSON.stringify([]));
         changed = true;
+      }
+      // a thread archived since it was cached here: its messages are gone on the server, so here too
+      if (row.state === "archived" && readSessionMessages(local).length) {
+        saveChatLocal(local, []);
+        if (sessionIdRef.current === local) setMessages([]);
       }
       meta[local] = metaFrom(row);
     }
@@ -416,12 +434,48 @@ export function useChatStore() {
     [hydrateFromServer]
   );
 
-  const deleteSession = useCallback(
-    (id: string) => {
+  /**
+   * Summarise and archive one chat now, ahead of the retention period.
+   * The server writes the summary and removes the messages; the cache
+   * follows on the reload. Not reversible.
+   */
+  const archiveSession = useCallback(
+    async (id: string): Promise<ArchiveOutcome> => {
       const conversationId = getConversationId(id);
+      if (!conversationId) return { archived: false, message: "This chat isn't saved on the server, so there is nothing to archive." };
+      try {
+        const res = await archiveConversationNow(conversationId);
+        await hydrateFromServer(id);
+        return { archived: true, archive: res.archive ?? null };
+      } catch (err: unknown) {
+        return { archived: false, message: (err as Error)?.message || "Couldn't archive this chat." };
+      }
+    },
+    [hydrateFromServer]
+  );
+
+  /**
+   * Delete one chat. The server goes first, so a chat on legal hold stays
+   * here too and the caller can say why; a chat the server no longer has
+   * (404) or cannot be reached for is still removed from this device, as
+   * before. Resolves with the server's receipt when it gave one.
+   */
+  const deleteSession = useCallback(
+    async (id: string): Promise<DeleteOutcome> => {
+      const conversationId = getConversationId(id);
+      let receipt: PurgeReceipt | null = null;
       if (conversationId) {
+        try {
+          const res = await deleteConversation(conversationId);
+          receipt = res.receipt ?? null;
+        } catch (err: unknown) {
+          const status = (err as { status?: number })?.status;
+          if (status === 409) {
+            return { deleted: false, held: true, message: (err as Error).message || "This chat is on hold and can't be deleted." };
+          }
+          // 404 or network: the local copy goes either way
+        }
         forgetConversation(id);
-        void deleteConversation(conversationId).catch(() => {});
       }
       localStorage.removeItem(sessionKey(id));
       const remaining = loadChatList().filter((x) => x !== id);
@@ -443,21 +497,46 @@ export function useChatStore() {
           createNewSession();
         }
       }
+      return { deleted: true, receipt };
     },
     [sessionId, switchSession, createNewSession]
   );
 
-  const clearAllSessions = useCallback(() => {
+  /**
+   * Delete every chat. Chats the server refuses (legal hold) stay in the
+   * list with their cache; everything else goes, and the receipts are
+   * summed for the notice.
+   */
+  const clearAllSessions = useCallback(async (): Promise<ClearOutcome> => {
     const map = loadConvMap();
-    for (const id of loadChatList()) {
-      localStorage.removeItem(sessionKey(id));
+    const list = loadChatList();
+    const out: ClearOutcome = { deleted: 0, held: 0, messages: 0, memoriesKept: 0 };
+    const kept: string[] = [];
+    for (const id of list) {
       const conversationId = map[id];
-      if (conversationId) void deleteConversation(conversationId).catch(() => {});
+      if (conversationId) {
+        try {
+          const res = await deleteConversation(conversationId);
+          out.messages += res.receipt?.messages ?? 0;
+          out.memoriesKept += res.receipt?.memories_kept?.length ?? 0;
+        } catch (err: unknown) {
+          if ((err as { status?: number })?.status === 409) {
+            out.held += 1;
+            kept.push(id);
+            continue;
+          }
+        }
+        delete map[id];
+      }
+      localStorage.removeItem(sessionKey(id));
+      out.deleted += 1;
     }
-    saveConvMap({});
-    saveChatList([]);
-    setConversationMeta({});
+    saveConvMap(map);
+    saveChatList(kept);
+    setConversationMeta((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => kept.includes(id))));
+    setChatList(kept);
     createNewSession();
+    return out;
   }, [createNewSession]);
 
   // -------------------------------------------------------------
@@ -600,9 +679,11 @@ export function useChatStore() {
     loadSessionMessages,
     switchSession,
     deleteSession,
+    archiveSession,
     clearAllSessions,
     hydrateFromServer,
     syncFromServer,
+    retention,
 
     appendMessageToLocal,
     appendAssistantMessage,
@@ -613,8 +694,5 @@ export function useChatStore() {
     isSending,
     lockInput,
     unlockInput,
-
-    toneMode,
-    setToneMode,
   };
 }
