@@ -141,8 +141,8 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-8 sm:px-6">
         {personalizationUser && <PersonalizationDialog user={personalizationUser} onClose={() => setPersonalizationUser(null)} />}
         <BackToSettings onClick={onBack} />
         <div className="mb-6 flex items-end justify-between gap-4">
@@ -290,38 +290,48 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
           </div>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-brand-100 bg-white shadow-card">
-            <table className="w-full min-w-[1040px] text-left text-[13.5px]">
+            <table className="w-full min-w-[960px] table-fixed text-left text-[13.5px]">
+              <colgroup>
+                <col className={canPersonalize ? "w-[24%]" : "w-[32%]"} />
+                <col className={canPersonalize ? "w-[12%]" : "w-[20%]"} />
+                <col className={canPersonalize ? "w-[10%]" : "w-[20%]"} />
+                <col className={canPersonalize ? "w-[13%]" : "w-[18%]"} />
+                <col className={canPersonalize ? "w-[8%]" : "w-[10%]"} />
+                {canPersonalize && <col className="w-[18%]" />}
+                {canPersonalize && <col className="w-[15%]" />}
+              </colgroup>
               <thead className="bg-brand-50 text-[11px] uppercase tracking-[0.08em] text-ink-muted">
                 <tr>
-                  <th className="px-5 py-3">User</th>
-                  <th className="px-5 py-3">Organization</th>
-                  <th className="px-5 py-3">Namespaces</th>
-                  <th className="px-5 py-3">Role</th>
-                  <th className="px-5 py-3">Status</th>
-                  {canPersonalize && <th className="px-5 py-3">Persona</th>}
-                  {canPersonalize && <th className="px-5 py-3">Personalization</th>}
+                  <th className="px-3 py-3">User</th>
+                  <th className="px-3 py-3">Organization</th>
+                  <th className="px-3 py-3">Namespaces</th>
+                  <th className="px-3 py-3">Role</th>
+                  <th className="px-3 py-3">Status</th>
+                  {canPersonalize && <th className="px-3 py-3">Persona</th>}
+                  {canPersonalize && <th className="px-3 py-3">Personalization</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-brand-100">
                 {users.map((user) => (
                   <tr key={user.id}>
-                    <td className="px-5 py-4 font-medium text-ink">
+                    <td className="px-3 py-3 font-medium text-ink [overflow-wrap:anywhere]">
                       {user.email}
                     </td>
-                    <td className="px-5 py-4 text-ink-muted">
+                    <td className="px-3 py-3 text-ink-muted [overflow-wrap:anywhere]">
                       {user.organization?.name}
                     </td>
-                    <td className="px-5 py-4 text-ink-muted">
+                    <td className="px-3 py-3 text-ink-muted [overflow-wrap:anywhere]">
                       {user.namespaces.map((item) => item.name).join(", ")}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-3">
                       <select
                         disabled={saving}
                         value={user.role?.name}
+                        title={user.role?.name}
                         onChange={(event) =>
                           void changeUser(user, { role: event.target.value })
                         }
-                        className="rounded-lg border border-brand-100 px-2.5 py-1.5"
+                        className="w-full min-w-0 rounded-lg border border-brand-100 px-2.5 py-1.5"
                       >
                         {roles.map((item) => (
                           <option key={item.id} value={item.name}>
@@ -330,7 +340,7 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                         ))}
                       </select>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-3">
                       <button
                         disabled={saving}
                         onClick={() =>
@@ -341,13 +351,14 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                         {user.active ? "Active" : "Inactive"}
                       </button>
                     </td>
-                    {canPersonalize && <td className="px-5 py-4">
+                    {canPersonalize && <td className="px-3 py-3">
                       <select
                         aria-label={`Persona for ${user.email}`}
                         disabled={saving || (role !== "super_admin" && user.role?.name === "super_admin")}
                         value={user.persona?.id || ""}
+                        title={user.persona?.name || "Namespace default"}
                         onChange={(event) => void changePersona(user, event.target.value || null)}
-                        className="whitespace-nowrap rounded-lg border border-brand-100 px-2.5 py-1.5 disabled:opacity-50"
+                        className="w-full min-w-0 truncate rounded-lg border border-brand-100 px-2.5 py-1.5 disabled:opacity-50"
                       >
                         <option value="">Namespace default</option>
                         {personas
@@ -357,10 +368,10 @@ export default function UserManagement({ onBack, role }: { onBack: () => void; r
                           ))}
                       </select>
                     </td>}
-                    {canPersonalize && <td className="px-5 py-4">
+                    {canPersonalize && <td className="px-3 py-3">
                       <button onClick={() => setPersonalizationUser(user)}
                         disabled={role !== "super_admin" && user.role?.name === "super_admin"}
-                        className="whitespace-nowrap rounded-lg border border-brand-100 px-3 py-2 text-sm font-medium text-brand-900 hover:bg-brand-50 disabled:opacity-50">
+                        className="w-full whitespace-normal rounded-lg border border-brand-100 px-2 py-2 text-[13px] font-medium leading-snug text-brand-900 hover:bg-brand-50 disabled:opacity-50">
                         Edit personalization
                       </button>
                     </td>}
