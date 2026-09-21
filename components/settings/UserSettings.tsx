@@ -241,10 +241,12 @@ export default function UserSettings({
               workspace.
             </li>
             <li>
-              Private chats are never saved: not in this browser, not on the
-              server, and not as memory for future answers. They answer only
-              from files you attach, skip the shared knowledge base, and are
-              cleared when you leave private mode or refresh.
+              Private chats are never saved: not in this browser, not as a
+              thread on the server, and not as memory for future answers.
+              Files you attach are sent to the server to be read, then
+              discarded. Private chats answer only from those files, skip the
+              shared knowledge base, and are cleared when you leave private
+              mode or refresh.
             </li>
           </ul>
           <div className="mt-5 flex flex-wrap gap-2">

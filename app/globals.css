@@ -309,6 +309,29 @@
   animation-delay: 0.3s;
 }
 
+/* Attachment activity bar: a band that sweeps while the parser is reading.
+   Indeterminate on purpose: the parser answers only when it has finished. */
+@keyframes sweep {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+.sweep-track {
+  position: relative;
+  overflow: hidden;
+}
+.sweep-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: 9999px;
+  animation: sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* Message entrance */
 @keyframes rise-in {
   from {
