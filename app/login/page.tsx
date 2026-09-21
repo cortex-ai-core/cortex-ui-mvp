@@ -106,7 +106,7 @@ export default function LoginPage() {
           <ul className="mt-8 space-y-3 text-sm text-white/80">
             {[
               "Workspace-scoped: every answer is drawn only from your namespace",
-              "Private mode for documents that should never be stored",
+              "Private mode for documents that should never be kept",
               "Executive-ready summaries, comparisons, and briefs",
             ].map((item) => (
               <li key={item} className="flex gap-3">

@@ -22,6 +22,12 @@ import MessageBubble from "@/components/MessageBubble";
 import ArchiveSummary from "@/components/ArchiveSummary";
 import { Toast, useToast } from "@/components/Toast";
 import { sendChat } from "@/lib/sendChat";
+import {
+  parseAttachment,
+  AttachmentError,
+  AttachmentCancelled,
+  ATTACHMENT_ACCEPT,
+} from "@/lib/attachmentsApi";
 import DocumentsPanel, {
   type PendingUpload,
   type StagedFile,
@@ -99,7 +105,10 @@ const SUGGESTIONS = [
   "Compare the candidates whose resumes are on file",
 ];
 
-const ACCEPTED = ".txt,.md,.docx,.csv,.json";
+// Attachments are read by the backend's document parser (the same one the
+// knowledge base uses), so the list matches its allowlist: PDF, Office,
+// Markdown, text, HTML and images. The bytes are never stored.
+const ACCEPTED = ATTACHMENT_ACCEPT;
 
 type View =
   | "chat"
@@ -136,7 +145,16 @@ function personaLabel(p: PersonaProvenance): string {
   const name = p.persona_key.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   return p.version ? `${name} · v${p.version}` : name;
 }
-type EphemeralFile = { name: string; content: string };
+type EphemeralFile = {
+  name: string;
+  /** parsed text; empty while the parser is still reading the file */
+  content: string;
+  /** true from the moment the file is picked until the parser answers */
+  pending?: boolean;
+  pages?: number | null;
+  /** the server cut the text at its per-file ceiling */
+  truncated?: boolean;
+};
 const VIEW_TITLES: Record<View, string> = {
   chat: "Chat",
   documents: "My documents",
@@ -200,6 +218,20 @@ export default function ChatClient({ user }: { user: any }) {
 
   const [input, setInput] = useState("");
   const [ephemeralFiles, setEphemeralFiles] = useState<EphemeralFile[]>([]);
+  // In-flight parses, by file name: the controller aborts the request when
+  // the chip is removed, the start time feeds the elapsed counter. The clock
+  // ticks once a second only while something is being read, so the activity
+  // bar shows time passing and the user can tell the parser has not stalled.
+  const parseControllers = useRef<Map<string, AbortController>>(new Map());
+  const parseStarted = useRef<Map<string, number>>(new Map());
+  const [clock, setClock] = useState(0);
+  const anyPending = ephemeralFiles.some((f) => f.pending);
+  useEffect(() => {
+    if (!anyPending) return;
+    setClock(Date.now());
+    const t = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [anyPending]);
   const [privateMode, setPrivateMode] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -425,43 +457,61 @@ export default function ChatClient({ user }: { user: any }) {
       return;
     }
 
-    const added: EphemeralFile[] = [];
-    const skipped: string[] = [];
+    // Each file is sent to the backend's parser (the one the knowledge
+    // base uses) and the text comes back; the server stores nothing.
+    // The chip appears at once as "reading…" and fills in when the
+    // parser answers, so a slow PDF never blocks the composer.
+    const fresh = files.filter(
+      (f) => !ephemeralFiles.some((p) => p.name === f.name),
+    );
+    if (!fresh.length) return;
 
-    for (const f of files) {
-      let text = "";
-      try {
-        if (f.name.toLowerCase().endsWith(".docx")) {
-          const mammoth = await import("mammoth");
-          const buf = await f.arrayBuffer();
-          text = (await mammoth.extractRawText({ arrayBuffer: buf })).value;
-        } else {
-          text = await f.text();
+    setNotice(null);
+    setEphemeralFiles((prev) => [
+      ...prev,
+      ...fresh.map((f) => ({ name: f.name, content: "", pending: true })),
+    ]);
+
+    const failed: string[] = [];
+    await Promise.all(
+      fresh.map(async (f) => {
+        const controller = new AbortController();
+        parseControllers.current.set(f.name, controller);
+        parseStarted.current.set(f.name, Date.now());
+        try {
+          const parsed = await parseAttachment(f, controller.signal);
+          setEphemeralFiles((prev) =>
+            prev.map((p) =>
+              p.name === f.name
+                ? {
+                    name: f.name,
+                    content: parsed.text,
+                    pages: parsed.page_count,
+                    truncated: parsed.truncated,
+                  }
+                : p,
+            ),
+          );
+        } catch (err) {
+          if (!(err instanceof AttachmentCancelled)) {
+            failed.push(
+              err instanceof AttachmentError ? err.message : `Couldn't read "${f.name}".`,
+            );
+          }
+          setEphemeralFiles((prev) => prev.filter((p) => p.name !== f.name));
+        } finally {
+          parseControllers.current.delete(f.name);
+          parseStarted.current.delete(f.name);
         }
-      } catch {
-        skipped.push(f.name);
-        continue;
-      }
+      }),
+    );
 
-      if (!text.trim()) {
-        skipped.push(f.name);
-        continue;
-      }
-
-      added.push({ name: f.name, content: text });
-    }
-
-    if (added.length) {
-      setEphemeralFiles((prev) => {
-        const names = new Set(prev.map((p) => p.name));
-        return [...prev, ...added.filter((a) => !names.has(a.name))];
-      });
-    }
-
-    setNotice(skipped.length ? `Couldn't read: ${skipped.join(", ")}` : null);
+    if (failed.length) setNotice(failed.join(" "));
   }
 
   function removeAttachment(name: string) {
+    // Removing a chip that is still being read cancels the parse request.
+    parseControllers.current.get(name)?.abort();
     setEphemeralFiles((prev) => prev.filter((f) => f.name !== name));
   }
 
@@ -587,6 +637,11 @@ export default function ChatClient({ user }: { user: any }) {
   async function handleSend() {
     const text = input.trim();
     if (!text || busy) return;
+
+    if (ephemeralFiles.some((f) => f.pending)) {
+      setNotice("Still reading your attachment. One moment.");
+      return;
+    }
 
     if (privateMode) {
       if (ephemeralFiles.length === 0) {
@@ -1088,8 +1143,8 @@ export default function ChatClient({ user }: { user: any }) {
                       <ul className="mt-4 space-y-2 text-[13.5px] text-ink">
                         {[
                           "Messages aren't added to Previous chats or kept in this browser.",
-                          "Nothing is stored on the server or used as memory for future answers.",
-                          "Attached files are used for this chat only and are never added to the shared knowledge base.",
+                          "Nothing is stored on the server: no thread, no message text, and nothing is kept as memory for future answers.",
+                          "Attached files are sent to the server to be read, then discarded. They are never added to the shared knowledge base.",
                           "The shared knowledge base isn't consulted. Answers come only from what you attach.",
                           "Leaving private mode, starting a new chat, or refreshing clears everything here.",
                         ].map((t) => (
@@ -1246,19 +1301,81 @@ export default function ChatClient({ user }: { user: any }) {
                       {ephemeralFiles.map((f) => (
                         <span
                           key={f.name}
-                          className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-brand-50 py-1 pl-2.5 pr-1.5 text-[12.5px] font-medium text-brand-900"
+                          title={
+                            f.pending
+                              ? "Reading this file…"
+                              : f.truncated
+                                ? "This file is long; only the first part is used."
+                                : f.pages
+                                  ? `${f.pages} page${f.pages === 1 ? "" : "s"}`
+                                  : undefined
+                          }
+                          className={`inline-flex max-w-full items-center gap-1.5 rounded-lg bg-brand-50 py-1 pl-2.5 pr-1.5 text-[12.5px] font-medium text-brand-900 ${
+                            f.pending ? "opacity-70" : ""
+                          }`}
                         >
                           <IconDoc size={13} />
                           <span className="truncate">{f.name}</span>
+                          {f.pending && (
+                            <span className="text-[11px] font-normal text-ink-muted">
+                              reading…
+                            </span>
+                          )}
+                          {!f.pending && f.truncated && (
+                            <span className="text-[11px] font-normal text-ink-muted">
+                              partial
+                            </span>
+                          )}
                           <button
                             onClick={() => removeAttachment(f.name)}
                             className="rounded p-0.5 text-brand-700 hover:bg-brand-100"
-                            aria-label={`Remove ${f.name}`}
+                            aria-label={
+                              f.pending
+                                ? `Cancel reading ${f.name}`
+                                : `Remove ${f.name}`
+                            }
                           >
                             <IconX size={12} />
                           </button>
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {anyPending && (
+                    <div
+                      role="progressbar"
+                      aria-busy="true"
+                      aria-label="Reading attachment"
+                      data-testid="attachment-progress"
+                      className="mx-3 mt-2"
+                    >
+                      <div className="sweep-track h-1 rounded-full bg-brand-100">
+                        <div className="sweep-band bg-brand-600" />
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between gap-3 text-[12px] text-ink-muted">
+                        <span className="truncate">
+                          {(() => {
+                            const pending = ephemeralFiles.filter((f) => f.pending);
+                            const oldest = Math.min(
+                              ...pending.map(
+                                (f) => parseStarted.current.get(f.name) ?? clock,
+                              ),
+                            );
+                            const secs = Math.max(0, Math.floor((clock - oldest) / 1000));
+                            const mm = Math.floor(secs / 60);
+                            const ss = String(secs % 60).padStart(2, "0");
+                            const what =
+                              pending.length === 1
+                                ? pending[0].name
+                                : `${pending.length} files`;
+                            return `Reading ${what}… ${mm}:${ss}`;
+                          })()}
+                        </span>
+                        <span className="shrink-0">
+                          Long PDFs can take a minute or two.
+                        </span>
+                      </div>
                     </div>
                   )}
 
@@ -1293,7 +1410,7 @@ export default function ChatClient({ user }: { user: any }) {
                           <label
                             htmlFor="attach-files"
                             className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-ink-muted transition hover:bg-brand-50 hover:text-brand-900"
-                            title="Attach files for this conversation only. They aren't saved to the knowledge base."
+                            title="Attach files for this conversation only. They are read by the document parser and never saved to the knowledge base."
                           >
                             <IconPaperclip size={15} />
                             Attach files
@@ -1307,8 +1424,8 @@ export default function ChatClient({ user }: { user: any }) {
                         aria-pressed={privateMode}
                         title={
                           privateMode
-                            ? "Private mode is on. This chat isn't saved anywhere and answers only from your attached files."
-                            : "Start a private chat: nothing is saved, nothing is remembered, and the shared knowledge base isn't used."
+                            ? "Private mode is on. This chat isn't saved and answers only from your attached files."
+                            : "Start a private chat: nothing is saved or remembered, and the shared knowledge base isn't used."
                         }
                         className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition ${
                           privateMode
