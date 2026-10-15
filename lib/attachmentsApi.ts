@@ -1,3 +1,4 @@
+import { BACKEND } from "./backend";
 // ----------------------------------------------------------------
 // Chat attachments: the file is sent to the backend, read by the same
 // document parser the knowledge base uses, and the text comes straight
@@ -18,14 +19,7 @@ export type ParsedAttachment = {
 export const ATTACHMENT_ACCEPT =
   ".pdf,.docx,.pptx,.xlsx,.md,.txt,.html,.htm,.png,.jpg,.jpeg,.tif,.tiff";
 
-function backendUrl() {
-  return (
-    process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
-    process.env.NEXT_PUBLIC_CORTEX_API_URL?.trim() ||
-    process.env.NEXT_PUBLIC_CORTEX_SERVER_URL?.trim() ||
-    "http://localhost:8080"
-  );
-}
+function backendUrl() { return BACKEND; }
 
 function token() {
   if (typeof window === "undefined") return "";

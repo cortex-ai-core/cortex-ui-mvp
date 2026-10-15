@@ -1,8 +1,9 @@
+import { BACKEND } from "./backend";
+export { BACKEND } from "./backend";
 // Client for the backend's document routes.
 // Upload uses XHR so the browser reports real byte progress.
 
-export const BACKEND =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || "http://localhost:8080";
+
 
 export type DocStatus =
   | "queued"
@@ -137,6 +138,7 @@ export function uploadDocument(
   meta: UploadMeta,
   onProgress: (fraction: number) => void
 ): Promise<UploadResult> {
+  if (process.env.NEXT_PUBLIC_DIRECT_UPLOAD === "true") return directUpload(file,meta,onProgress);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BACKEND}/api/documents/upload`);
@@ -167,6 +169,28 @@ export function uploadDocument(
     xhr.timeout = 10 * 60 * 1000;
     xhr.send(fd);
   });
+}
+
+async function directUpload(file:File,meta:UploadMeta,onProgress:(fraction:number)=>void):Promise<UploadResult> {
+  if(file.size<1||file.size>50*1024*1024)throw new ApiError("Choose a nonempty file up to 50 MB.",400);
+  const digest=await crypto.subtle.digest("SHA-256",await file.arrayBuffer());
+  const sha256=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+  const prepared=await request<UploadResult & {uploadUrl?:string;headers?:Record<string,string>}>("/api/documents/upload-url",{method:"POST",body:JSON.stringify({...meta,file_name:file.name,byte_size:file.size,sha256})});
+  if(prepared.duplicate)return prepared;
+  if(!prepared.uploadUrl||!prepared.headers)throw new ApiError("Unable to prepare the upload.",502);
+  const target=new URL(prepared.uploadUrl);
+  if(target.protocol!=="https:"||!target.hostname.endsWith(".amazonaws.com"))throw new ApiError("Unexpected upload destination.",502);
+  await new Promise<void>((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();xhr.open("PUT",prepared.uploadUrl!);
+    for(const [key,value]of Object.entries(prepared.headers!))xhr.setRequestHeader(key,value);
+    xhr.timeout=10*60*1000;
+    xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(e.loaded/e.total);};
+    xhr.onerror=()=>reject(new ApiError("Couldn't upload the file. You can retry it.",0));
+    xhr.ontimeout=()=>reject(new ApiError("The upload timed out. You can retry it.",0));
+    xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve():reject(new ApiError("The upload was not accepted. Please retry.",xhr.status));
+    xhr.send(file);
+  });
+  return request<UploadResult>(`/api/documents/${prepared.document_id}/upload-complete`,{method:"POST"});
 }
 
 // ---------------------------------------------------------------- types
