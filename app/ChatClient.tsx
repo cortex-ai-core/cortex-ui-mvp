@@ -1,5 +1,7 @@
 "use client";
 
+import { BACKEND } from "@/lib/backend";
+
 import {
   useState,
   useEffect,
@@ -76,8 +78,7 @@ import {
 // -------------------------------------------------------------
 // CONSTANTS
 // -------------------------------------------------------------
-const BACKEND =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.trim() || "http://localhost:8080";
+
 
 
 const workspaceLabel: Record<string, string> = {
@@ -169,7 +170,7 @@ const VIEW_TITLES: Record<View, string> = {
 // -------------------------------------------------------------
 // COMPONENT
 // -------------------------------------------------------------
-export default function ChatClient({ user }: { user: any }) {
+export default function ChatClient({ user, initialView = "chat" }: { user: any; initialView?: "chat" | "documents" | "user-management" }) {
   const router = useRouter();
   const dialog = useDialog();
 
@@ -210,7 +211,7 @@ export default function ChatClient({ user }: { user: any }) {
     unlockInput,
   } = useChatStore();
 
-  const [view, setView] = useState<View>("chat");
+  const [view, setView] = useState<View>(initialView);
   // Which persona and version answered last, from the server's provenance.
   const [lastPersona, setLastPersona] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);

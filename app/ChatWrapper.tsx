@@ -28,7 +28,7 @@ function BrandLoader() {
   );
 }
 
-export default function ChatWrapper() {
+export default function ChatWrapper({ initialView = "chat" }: { initialView?: "chat" | "documents" | "user-management" }) {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
 
@@ -83,7 +83,7 @@ export default function ChatWrapper() {
   return (
     <Suspense fallback={<BrandLoader />}>
       <DialogProvider>
-        <ChatClient user={user} />
+        <ChatClient user={user} initialView={initialView} />
       </DialogProvider>
     </Suspense>
   );

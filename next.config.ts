@@ -1,12 +1,8 @@
 import type { NextConfig } from "next";
-
 const nextConfig: NextConfig = {
-  experimental: {
-    optimizeCss: false,
-  },
-
-  // 🔥 FORCE server runtime (disables static export behavior)
-  output: "standalone",
+  output: "export",
+  distDir: process.env.CORTEX_NEXT_DIST_DIR || ".next",
+  trailingSlash: true,
+  images: { unoptimized: true },
 };
-
 export default nextConfig;

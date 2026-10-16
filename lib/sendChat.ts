@@ -1,3 +1,4 @@
+import { BACKEND } from "./backend";
 import type { ChatMeta, Citation, PersonaProvenance } from "@/lib/citations";
 
 let activeRequest = false;
@@ -18,14 +19,7 @@ export type SendChatConfig = {
   onSources?: (sources: ChatMeta["sources"], mode?: ChatMeta["mode"]) => void;
 };
 
-function backendUrl() {
-  return (
-    process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
-    process.env.NEXT_PUBLIC_CORTEX_API_URL?.trim() ||
-    process.env.NEXT_PUBLIC_CORTEX_SERVER_URL?.trim() ||
-    "http://localhost:8080"
-  );
-}
+function backendUrl() { return BACKEND; }
 
 function tokenFromStorage() {
   if (typeof window === "undefined") return "";

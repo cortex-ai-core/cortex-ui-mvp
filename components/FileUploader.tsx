@@ -1,5 +1,7 @@
 "use client";
 
+import { BACKEND } from "@/lib/backend";
+
 import { useState } from "react";
 
 export default function FileUploader({ onUploadComplete, namespace }: any) {
@@ -15,9 +17,7 @@ export default function FileUploader({ onUploadComplete, namespace }: any) {
     setStatus(`Processing ${files.length} file(s)...`);
 
     try {
-      const BACKEND =
-        process.env.NEXT_PUBLIC_BACKEND_URL?.trim() ||
-        "http://localhost:8080";
+
 
       const token =
         typeof window !== "undefined"
