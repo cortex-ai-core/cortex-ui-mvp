@@ -1,0 +1,5 @@
+{
+  "dev": { "account": "909762691423", "region": "us-west-2", "deploymentEnabled": true },
+  "test": { "account": "223323955607", "region": "us-west-2", "deploymentEnabled": false },
+  "prod": { "account": "474711723859", "region": "us-west-2", "deploymentEnabled": false }
+}

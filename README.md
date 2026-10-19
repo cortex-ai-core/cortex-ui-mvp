@@ -218,7 +218,7 @@ CloudFront is global; the web objects and regional workloads are in Oregon. The 
 
 In the AWS Console, choose **Cortex-Dev + Oregon** for S3/ECS/RDS/Lambda. Inspect **S3 -> web bucket** for the site assets and **CloudFront -> distribution -> Origins/Behaviors** for routing. Inspect **ECS -> cortex-dev -> Services** for API/worker/parser tasks. The frontend has no running Next.js/Fargate service to restart.
 
-Infrastructure/CDK is maintained in the backend repo. This frontend publisher deploys files into existing infrastructure; it does not create the VPC, database, ALBs or CloudFront distribution. Test `223323955607` and Prod `474711723859` require their own bootstrap and deployment configuration. The legacy `cortex-ui-mvp.vercel.app` site is separate from this AWS release path.
+Infrastructure/CDK is maintained in the backend repo. This frontend publisher deploys files into existing infrastructure; it does not create the VPC, database, ALBs or CloudFront distribution. Test `223323955607` and Prod `474711723859` remain disabled in [deployment/environments.json](deployment/environments.json). Their account, GitHub, DNS, secrets and promotion prerequisites are documented in [environment prerequisites](docs/environment-prerequisites.md). The legacy `cortex-ui-mvp.vercel.app` site is separate from this AWS release path.
 
 ## Deployment and recovery
 
@@ -230,7 +230,7 @@ Infrastructure/CDK is maintained in the backend repo. This frontend publisher de
 | --- | --- | --- |
 | Pull request | Static export | Skipped |
 | Push / merge to `dev` | Static export | Dev S3/CloudFront |
-| Manual dispatch, when available | Static export | Selected already-provisioned Dev/Test/Prod environment |
+| Manual dispatch, when available | Static export and deployment-policy checks | Defaults to preparation only; Test/Prod remain locked |
 
 The repository's default branch is currently `main`; GitHub's manual workflow button requires the workflow to be available from the default branch. If the button is absent, rerun an existing Dev **push** run or use the manual publishing path below. A PR build rerun never publishes.
 
@@ -289,7 +289,7 @@ To roll back the frontend, rebuild/republish a previously reviewed, compatible c
 
 ## Verification and troubleshooting
 
-The current CI gate is the static build. `npm run lint` is available separately; there is no `npm test` script or standalone frontend test suite configured in this package. A successful build does not verify login, uploads or backend processing.
+CI runs deployment-policy tests plus the static build. `npm run test:deployment` verifies that Test/Prod publishing fails before any AWS call; `npm run prepare:environments` reports the offline environment gates. Manual dispatch defaults to `prepare_only: true`; explicitly select false for an authorized Dev publish. `npm run lint` is available separately; there is no root `npm test` script or browser test suite configured in this package. A successful build does not verify login, uploads or backend processing.
 
 After a relevant change, verify in the browser: login/first-password/reset screens, chat/history refresh, citations, temporary attachment parsing, a persistent upload reaching `ready`, role-based controls, private mode and a narrow/mobile viewport. Test through the AWS origin for S3/CORS/queue delivery; local multipart uploads cover a different path. Use synthetic files/accounts when performing controlled verification.
 
