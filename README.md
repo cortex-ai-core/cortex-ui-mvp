@@ -4,7 +4,7 @@ Cortéx is SolluCIO's document-grounded chat application. This repository contai
 
 **The AWS frontend is a Next.js static export hosted in private S3 and delivered through CloudFront.** React runs in the browser. The API, document worker and Docling parser run in the separate [backend repository](https://github.com/cortex-ai-core/cortex-mvp/tree/dev) on ECS/Fargate.
 
-[Open Oregon Dev](https://d3ni3zlrnsq9j7.cloudfront.net/) using your individual Cortéx account. The new hostname `cortex-dev.solluciopartners.com` has its CloudFront alias/certificate configured, but its GoDaddy routing record is still pending as of October 19, 2026. The generated CloudFront address remains usable.
+[Open Oregon Dev](https://cortex-dev.solluciopartners.com/) using your individual Cortéx account. Its GoDaddy CNAME and HTTPS website/API health were verified on October 19, 2026. The [generated CloudFront address](https://d3ni3zlrnsq9j7.cloudfront.net/) remains usable.
 
 ## Contents
 
@@ -214,7 +214,7 @@ flowchart LR
     Worker --> DB
 ```
 
-CloudFront is global; the web objects and regional workloads are in Oregon. The browser does not get direct RDS access or a Fargate public IP. The current Phase A public HTTPS ALB is deployed, but `/api/*` still follows the existing private origin until DNS and the separate Phase B change are accepted. See the [backend custom-domain runbook](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/custom-domain.md) for the rollout.
+CloudFront is global; the web objects and regional workloads are in Oregon. The browser does not get direct RDS access or a Fargate public IP. The selected architecture for Dev, Test and Prod is CloudFront → private ALB → private API tasks. Dev already uses this route; Test/Prod remain locked and undeployed. The previously staged Dev public ALB is unused and awaits separate cleanup. This private-origin design is an explicit variation from the guidebook's public load-balancer tier. See the [backend custom-domain runbook](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/custom-domain.md).
 
 In the AWS Console, choose **Cortex-Dev + Oregon** for S3/ECS/RDS/Lambda. Inspect **S3 -> web bucket** for the site assets and **CloudFront -> distribution -> Origins/Behaviors** for routing. Inspect **ECS -> cortex-dev -> Services** for API/worker/parser tasks. The frontend has no running Next.js/Fargate service to restart.
 
@@ -312,7 +312,7 @@ The code includes historical helper/backup files. A lint failure in one should b
 
 - [Backend README](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/README.md): local environment, source map, Fargate and AWS Console walkthrough, infrastructure and release ownership.
 - [AWS migration guide](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/aws-migration.md): environment setup, migration evidence and operating constraints.
-- [Custom-domain runbook](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/custom-domain.md): certificates, GoDaddy records and staged origin switch.
+- [Custom-domain runbook](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/custom-domain.md): viewer certificates, GoDaddy records and the selected private API origin.
 - [Backend retention behavior](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/RETENTION.md): application retention/privacy semantics.
 
 Update this README when routes, configuration, API contracts, hosting or release behavior change. Keep passwords, tokens, `.env.local` and private verification evidence out of Git. This is the frontend guide; database migrations, IAM, VPC design and backend recovery remain owned by the backend repository.
