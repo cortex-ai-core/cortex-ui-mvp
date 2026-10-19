@@ -5,11 +5,15 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      prepare_only:
+        type: boolean
+        default: true
+        description: Build and verify only; do not authenticate to AWS or publish
       environment:
         type: choice
         options: [dev, test, prod]
         default: dev
-        description: Account to deploy (requires matching infrastructure and approvals)
+        description: Account to deploy (test/prod are locked pending a separate enablement PR)
 permissions:
   contents: read
 concurrency:
@@ -29,6 +33,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run test:deployment
+      - run: npm run prepare:environments
       - run: npm run build -- --webpack
       - uses: actions/upload-artifact@v4
         with:
@@ -39,7 +45,7 @@ jobs:
     concurrency:
       group: cortex-web-deployment-${{ github.event.inputs.environment || 'dev' }}
       cancel-in-progress: false
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.prepare_only == false)
     needs: build
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'dev' }}
@@ -59,6 +65,7 @@ jobs:
           path: out
       - id: target
         run: |
+          node scripts/deploy/policy.mjs "$CORTEX_ENVIRONMENT"
           case "$CORTEX_ENVIRONMENT" in dev) ACCOUNT=909762691423;; test) ACCOUNT=223323955607;; prod) ACCOUNT=474711723859;; *) exit 1;; esac
           echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@v6.3.0
