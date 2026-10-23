@@ -323,7 +323,7 @@ Update this README when routes, configuration, API contracts, hosting or release
 
 ## Test environment and Dev to Test promotion
 
-**Generated Test site:** [https://d3e2wh85985oj4.cloudfront.net](https://d3e2wh85985oj4.cloudfront.net). CloudFront distribution **`E1H1PAMT85D0KU`**. Custom hostname: `cortex-test.solluciopartners.com`, pending external DNS/certificate activation.
+**Test site:** [https://cortex-test.solluciopartners.com](https://cortex-test.solluciopartners.com). The [generated CloudFront address](https://d3e2wh85985oj4.cloudfront.net) remains available. Distribution **`E1H1PAMT85D0KU`**. Both GoDaddy CNAMEs were published and resolved correctly on October 23, 2026; backend promotion activates the hostname after certificate issuance.
 
 A push to **`test`** runs [Promote Dev to Test frontend](.github/workflows/promote-test.yml). It selects the latest successful Dev push run of `AWS Oregon frontend`, downloads the existing `static-web` artifact, verifies the archive SHA-256 against GitHub's recorded digest, checks the matching backend Dev release is already deployed in Test, and publishes those exact static files. It does **not** rebuild Next.js during promotion. Application changes must first pass the Dev build/release workflow; code unique to Test controls deployment tooling.
 
@@ -334,7 +334,7 @@ The backend has the corresponding [promotion workflow](https://github.com/cortex
 | AWS account / region | `223323955607` / `us-west-2` |
 | Website bucket | `cortex-web-test-223323955607-us-west-2` |
 | Delivery stack | `cortex-test-delivery`; read `Url` and `DistributionId` outputs |
-| Intended hostname | `https://cortex-test.solluciopartners.com` after GoDaddy validation/routing |
+| Custom hostname | `https://cortex-test.solluciopartners.com`; generated URL remains supported |
 | API | Same-origin `/api/*` through CloudFront → private VPC origin → internal ALB |
 | Frontend identity | `arn:aws:iam::223323955607:role/cortex-test-github-cortex-ui-mvp` |
 | OIDC subject | `repo:cortex-ai-core/cortex-ui-mvp:ref:refs/heads/test` |
@@ -357,7 +357,7 @@ Live acceptance on October 23, 2026 confirmed the rendered login page, HTTP 200 
 
 ### DNS, data and acceptance
 
-The security contact manages GoDaddy. They need a `cortex-test` CNAME pointing to `d3e2wh85985oj4.cloudfront.net`, plus the ACM validation CNAME listed in the [backend README DNS handoff](https://github.com/cortex-ai-core/cortex-mvp/blob/test/README.md#dns-handoff-and-certificate-activation). Keep certificate-validation records for renewal. The backend promotion automatically attaches the custom viewer alias after its us-east-1 certificate becomes issued. Use the generated CloudFront URL until DNS/certificate/alias acceptance is complete.
+The security contact added the GoDaddy `cortex-test` CNAME pointing to `d3e2wh85985oj4.cloudfront.net`, plus the ACM validation CNAME on October 23, 2026. Exact records are listed in the [backend README DNS handoff](https://github.com/cortex-ai-core/cortex-mvp/blob/test/README.md#dns-handoff-and-certificate-activation). Keep certificate-validation records for renewal. The backend promotion automatically attaches the custom viewer alias after its us-east-1 certificate becomes issued. For a future DNS/certificate change, verify custom-host HTTPS and login after the backend promotion finishes; the generated CloudFront URL remains available during rollout.
 
 Test has its own RDS database, Cognito pool, buckets and signing secrets. No Dev users, organizations, documents or chat history are transferred. The first Test super admin is provisioned through the backend's separate guarded bootstrap; it is not copied from Dev or recreated by promotions. Authenticated chat/upload/reset acceptance follows that identity provisioning. Frontend hosting and API health can be verified without importing application data.
 
