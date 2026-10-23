@@ -45,3 +45,5 @@ next-env.d.ts
 /.next-ci/
 
 /.next-local/
+
+/.local/

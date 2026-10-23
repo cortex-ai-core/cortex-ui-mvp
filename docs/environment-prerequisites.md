@@ -1,4 +1,8 @@
-# Test and Prod frontend preparation
+# Current Test deployment
+
+Updated October 23, 2026. Test is enabled for the explicitly requested `test` branch in account `223323955607`; Prod remains disabled. See [the Test deployment runbook](test-deployment.md) for current behavior. The October 19 preparation record below is historical: its Test locks, environment-subject trust and promotion prerequisites have been superseded for this branch-driven Test rollout. Production promotion remains separate.
+
+# Historical Test and Prod frontend preparation
 
 Owner: SolluCIO Cortex frontend. Updated October 19, 2026.
 

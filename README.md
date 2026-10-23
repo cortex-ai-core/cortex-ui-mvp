@@ -1,5 +1,8 @@
 # Cortéx frontend
 
+
+**Test deployment:** the `test` branch has a dedicated AWS pipeline for account `223323955607`. See [Test deployment](docs/test-deployment.md). Test starts with an empty database and Cognito pool; Prod remains disabled.
+
 Cortéx is SolluCIO's document-grounded chat application. This repository contains the browser interface: sign-in and password recovery, chat and citations, temporary attachments, the document library, and role-based settings and administration.
 
 **The AWS frontend is a Next.js static export hosted in private S3 and delivered through CloudFront.** React runs in the browser. The API, document worker and Docling parser run in the separate [backend repository](https://github.com/cortex-ai-core/cortex-mvp/tree/dev) on ECS/Fargate.
@@ -214,11 +217,11 @@ flowchart LR
     Worker --> DB
 ```
 
-CloudFront is global; the web objects and regional workloads are in Oregon. The browser does not get direct RDS access or a Fargate public IP. The selected architecture for Dev, Test and Prod is CloudFront → private ALB → private API tasks. Dev already uses this route; Test/Prod remain locked and undeployed. The previously staged Dev public ALB is unused and awaits separate cleanup. This private-origin design is an explicit variation from the guidebook's public load-balancer tier. See the [backend custom-domain runbook](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/custom-domain.md).
+CloudFront is global; the web objects and regional workloads are in Oregon. The browser does not get direct RDS access or a Fargate public IP. The selected architecture for Dev, Test and Prod is CloudFront → private ALB → private API tasks. Dev already uses this route; Test uses its dedicated branch pipeline; Prod remains locked. The previously staged Dev public ALB is unused and awaits separate cleanup. This private-origin design is an explicit variation from the guidebook's public load-balancer tier. See the [backend custom-domain runbook](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/custom-domain.md).
 
 In the AWS Console, choose **Cortex-Dev + Oregon** for S3/ECS/RDS/Lambda. Inspect **S3 -> web bucket** for the site assets and **CloudFront -> distribution -> Origins/Behaviors** for routing. Inspect **ECS -> cortex-dev -> Services** for API/worker/parser tasks. The frontend has no running Next.js/Fargate service to restart.
 
-Infrastructure/CDK is maintained in the backend repo. This frontend publisher deploys files into existing infrastructure; it does not create the VPC, database, ALBs or CloudFront distribution. Test `223323955607` and Prod `474711723859` remain disabled in [deployment/environments.json](deployment/environments.json). Their account, GitHub, DNS, secrets and promotion prerequisites are documented in [environment prerequisites](docs/environment-prerequisites.md). The legacy `cortex-ui-mvp.vercel.app` site is separate from this AWS release path.
+Infrastructure/CDK is maintained in the backend repo. This frontend publisher deploys files into existing infrastructure; it does not create the VPC, database, ALBs or CloudFront distribution. Test `223323955607` is enabled on the `test` branch; Prod `474711723859` remains disabled in [deployment/environments.json](deployment/environments.json). Their account, GitHub, DNS, secrets and promotion prerequisites are documented in [environment prerequisites](docs/environment-prerequisites.md). The legacy `cortex-ui-mvp.vercel.app` site is separate from this AWS release path.
 
 ## Deployment and recovery
 
@@ -230,7 +233,7 @@ Infrastructure/CDK is maintained in the backend repo. This frontend publisher de
 | --- | --- | --- |
 | Pull request | Static export | Skipped |
 | Push / merge to `dev` | Static export | Dev S3/CloudFront |
-| Manual dispatch, when available | Static export and deployment-policy checks | Defaults to preparation only; Test/Prod remain locked |
+| Manual dispatch, when available | Static export and deployment-policy checks | Defaults to preparation only; Test uses its separate branch workflow; Prod remains locked |
 
 The repository's default branch is currently `main`; GitHub's manual workflow button requires the workflow to be available from the default branch. If the button is absent, rerun an existing Dev **push** run or use the manual publishing path below. A PR build rerun never publishes.
 
@@ -289,7 +292,7 @@ To roll back the frontend, rebuild/republish a previously reviewed, compatible c
 
 ## Verification and troubleshooting
 
-CI runs deployment-policy tests plus the static build. `npm run test:deployment` verifies that Test/Prod publishing fails before any AWS call; `npm run prepare:environments` reports the offline environment gates. Manual dispatch defaults to `prepare_only: true`; explicitly select false for an authorized Dev publish. `npm run lint` is available separately; there is no root `npm test` script or browser test suite configured in this package. A successful build does not verify login, uploads or backend processing.
+CI runs deployment-policy tests plus the static build. `npm run test:deployment` verifies that Prod publishing and Test releases from other GitHub refs fail before any AWS call; `npm run prepare:environments` reports the offline environment gates. Manual dispatch defaults to `prepare_only: true`; explicitly select false for an authorized Dev publish. `npm run lint` is available separately; there is no root `npm test` script or browser test suite configured in this package. A successful build does not verify login, uploads or backend processing.
 
 After a relevant change, verify in the browser: login/first-password/reset screens, chat/history refresh, citations, temporary attachment parsing, a persistent upload reaching `ready`, role-based controls, private mode and a narrow/mobile viewport. Test through the AWS origin for S3/CORS/queue delivery; local multipart uploads cover a different path. Use synthetic files/accounts when performing controlled verification.
 
@@ -316,3 +319,37 @@ The code includes historical helper/backup files. A lint failure in one should b
 - [Backend retention behavior](https://github.com/cortex-ai-core/cortex-mvp/blob/dev/docs/RETENTION.md): application retention/privacy semantics.
 
 Update this README when routes, configuration, API contracts, hosting or release behavior change. Keep passwords, tokens, `.env.local` and private verification evidence out of Git. This is the frontend guide; database migrations, IAM, VPC design and backend recovery remain owned by the backend repository.
+
+## Test environment and Dev to Test promotion
+
+A push to **`test`** runs [Promote Dev to Test frontend](.github/workflows/promote-test.yml). It selects the latest successful Dev push run of `AWS Oregon frontend`, downloads the existing `static-web` artifact, verifies the archive SHA-256 against GitHub's recorded digest, checks the matching backend Dev release is already deployed in Test, and publishes those exact static files. It does **not** rebuild Next.js during promotion. Application changes must first pass the Dev build/release workflow; code unique to Test controls deployment tooling.
+
+The backend has the corresponding [promotion workflow](https://github.com/cortex-ai-core/cortex-mvp/blob/test/.github/workflows/promote-test.yml). Push backend Test first. Frontend promotion waits up to thirty minutes for the selected backend image tag and checks `/api/health` before publication. A failed/expired artifact, bad checksum or mismatched backend stops publication. Promotions are serialized per repository; the two repositories and database are not one atomic transaction.
+
+| Setting | Test |
+|---|---|
+| AWS account / region | `223323955607` / `us-west-2` |
+| Website bucket | `cortex-web-test-223323955607-us-west-2` |
+| Delivery stack | `cortex-test-delivery`; read `Url` and `DistributionId` outputs |
+| Intended hostname | `https://cortex-test.solluciopartners.com` after GoDaddy validation/routing |
+| API | Same-origin `/api/*` through CloudFront → private VPC origin → internal ALB |
+| Frontend identity | `arn:aws:iam::223323955607:role/cortex-test-github-cortex-ui-mvp` |
+| OIDC subject | `repo:cortex-ai-core/cortex-ui-mvp:ref:refs/heads/test` |
+
+No saved AWS access keys or backend secrets are required in frontend repository settings. The role is branch-bound and the policy rejects Test actions from other refs/events. Prod remains disabled. Repository owner/admin branch protections are separate; this rollout does not claim reviewer settings were configured. Existing Dev releases keep their current workflow.
+
+The static artifact is portable because Dev builds explicitly use `NEXT_PUBLIC_BACKEND_URL=''` and `NEXT_PUBLIC_DIRECT_UPLOAD=true`. Promotion records the source frontend commit/run/artifact checksum, deployment revision/run and selected backend Dev run in `releases/current.json`. The `dev-to-test-frontend-release` artifact retains provenance for 90 days. The publisher uploads hashed assets before HTML, preserves older hashed assets, sets appropriate cache headers and invalidates CloudFront.
+
+For manual selection, the workflow accepts `dev_run_id` and `backend_dev_run_id`, both defaulting to `latest`; select the **test** ref. GitHub's manual dispatch UI requires the workflow on the default branch. If it is unavailable on the existing main default branch, use a Test push/rerun or ask the repository owner to register the workflow there. A green PR build is not an eligible Dev release.
+
+### DNS, data and acceptance
+
+The security contact manages GoDaddy. They need a `cortex-test` CNAME pointing to the generated Test CloudFront hostname, plus the ACM validation CNAME listed in the [backend README DNS handoff](https://github.com/cortex-ai-core/cortex-mvp/blob/test/README.md#dns-handoff-and-certificate-activation). Keep certificate-validation records for renewal. The backend promotion automatically attaches the custom viewer alias after its us-east-1 certificate becomes issued. Use the generated CloudFront URL until DNS/certificate/alias acceptance is complete.
+
+Test has its own RDS database, Cognito pool, buckets and signing secrets. No Dev users, organizations, documents or chat history are transferred. A fresh schema alone does not provide a login account or workspace. Authenticated chat/upload/reset acceptance follows separate Test identity provisioning. Frontend hosting and API health can be verified without importing application data.
+
+Backend infrastructure, service sizing, central logging, database migration checks, OpenAI settings and operating-cost policy are detailed in the [backend Test inventory](https://github.com/cortex-ai-core/cortex-mvp/blob/test/README.md#test-environment-and-dev-to-test-promotion). Test mirrors Dev sizing; Dev inventory had no budget definitions or alarm subscriptions to copy.
+
+### Recovery
+
+Re-promote a previously accepted frontend Dev run after confirming its backend/schema compatibility. The artifact must still exist and pass checksum validation. Publication is not atomic; inspect a partially failed upload/invalidation and republish the accepted artifact. Do not empty the bucket or remove retained hashed assets. Frontend rollback does not reverse database changes. The companion backend runbook owns stateful recovery.
