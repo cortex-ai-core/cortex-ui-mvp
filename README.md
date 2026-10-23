@@ -233,6 +233,7 @@ Infrastructure/CDK is maintained in the backend repo. This frontend publisher de
 | --- | --- | --- |
 | Pull request | Static export | Skipped |
 | Push / merge to `dev` | Static export | Dev S3/CloudFront |
+| Push to `test` | Reuse checksum-verified successful Dev export | Wait for matching backend, then Test S3/CloudFront |
 | Manual dispatch, when available | Static export and deployment-policy checks | Defaults to preparation only; Test uses its separate branch workflow; Prod remains locked |
 
 The repository's default branch is currently `main`; GitHub's manual workflow button requires the workflow to be available from the default branch. If the button is absent, rerun an existing Dev **push** run or use the manual publishing path below. A PR build rerun never publishes.
@@ -288,7 +289,7 @@ The publisher expects an already-built `out` folder; it does not build the app. 
 
 Start with **GitHub -> Actions -> failed Dev push run -> failed step**, then use **Re-run failed jobs** after fixing the cause. S3 publication is not an atomic transaction and the current script does not automatically roll the whole website back.
 
-To roll back the frontend, rebuild/republish a previously reviewed, compatible commit using the same workflow/manual path. This creates a normal tracked release and invalidation. S3 version history is an additional recovery mechanism, not a reason to empty the web bucket. Frontend rollback does not undo backend schema changes or customer data.
+For Dev rollback, rebuild/republish a previously reviewed, compatible commit using the same workflow/manual path. This creates a normal tracked release and invalidation. S3 version history is an additional recovery mechanism, not a reason to empty the web bucket. Frontend rollback does not undo backend schema changes or customer data.
 
 ## Verification and troubleshooting
 
@@ -322,6 +323,8 @@ Update this README when routes, configuration, API contracts, hosting or release
 
 ## Test environment and Dev to Test promotion
 
+**Generated Test site:** [https://d3e2wh85985oj4.cloudfront.net](https://d3e2wh85985oj4.cloudfront.net). CloudFront distribution **`E1H1PAMT85D0KU`**. Custom hostname: `cortex-test.solluciopartners.com`, pending external DNS/certificate activation.
+
 A push to **`test`** runs [Promote Dev to Test frontend](.github/workflows/promote-test.yml). It selects the latest successful Dev push run of `AWS Oregon frontend`, downloads the existing `static-web` artifact, verifies the archive SHA-256 against GitHub's recorded digest, checks the matching backend Dev release is already deployed in Test, and publishes those exact static files. It does **not** rebuild Next.js during promotion. Application changes must first pass the Dev build/release workflow; code unique to Test controls deployment tooling.
 
 The backend has the corresponding [promotion workflow](https://github.com/cortex-ai-core/cortex-mvp/blob/test/.github/workflows/promote-test.yml). Push backend Test first. Frontend promotion waits up to thirty minutes for the selected backend image tag and checks `/api/health` before publication. A failed/expired artifact, bad checksum or mismatched backend stops publication. Promotions are serialized per repository; the two repositories and database are not one atomic transaction.
@@ -344,7 +347,7 @@ For manual selection, the workflow accepts `dev_run_id` and `backend_dev_run_id`
 
 ### DNS, data and acceptance
 
-The security contact manages GoDaddy. They need a `cortex-test` CNAME pointing to the generated Test CloudFront hostname, plus the ACM validation CNAME listed in the [backend README DNS handoff](https://github.com/cortex-ai-core/cortex-mvp/blob/test/README.md#dns-handoff-and-certificate-activation). Keep certificate-validation records for renewal. The backend promotion automatically attaches the custom viewer alias after its us-east-1 certificate becomes issued. Use the generated CloudFront URL until DNS/certificate/alias acceptance is complete.
+The security contact manages GoDaddy. They need a `cortex-test` CNAME pointing to `d3e2wh85985oj4.cloudfront.net`, plus the ACM validation CNAME listed in the [backend README DNS handoff](https://github.com/cortex-ai-core/cortex-mvp/blob/test/README.md#dns-handoff-and-certificate-activation). Keep certificate-validation records for renewal. The backend promotion automatically attaches the custom viewer alias after its us-east-1 certificate becomes issued. Use the generated CloudFront URL until DNS/certificate/alias acceptance is complete.
 
 Test has its own RDS database, Cognito pool, buckets and signing secrets. No Dev users, organizations, documents or chat history are transferred. A fresh schema alone does not provide a login account or workspace. Authenticated chat/upload/reset acceptance follows separate Test identity provisioning. Frontend hosting and API health can be verified without importing application data.
 
